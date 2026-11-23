@@ -1282,10 +1282,98 @@ def test_grade_tonnage_plot_many_realizations_keep_a_short_legend():
     plt.close('all')
 
 
+def _gtcurve_loop(values, weights, trim, clip, cut_range, ncut):
+    """One model as the CCG program gtcurve_sim computes it, value by value (tonnage as a fraction)"""
+    kept = [(min(v, clip), w) for v, w in zip(values, weights) if not (v < trim[0] or v >= trim[1]) and w > 1e-10]
+    total = sum(w for _, w in kept)
+    tonnage, grade = [], []
+    for i in range(ncut):
+        cutoff = cut_range[0] + i / (ncut - 1) * (cut_range[1] - cut_range[0])
+        above = [(v, w) for v, w in kept if v >= cutoff]
+        weight = sum(w for _, w in above)
+        tonnage.append(weight / total)
+        grade.append(sum(v * w for v, w in above) / weight)
+    return np.array(tonnage), np.array(grade)
+
+
 def _gt_curves(ax):
     """The lines of the tonnage (left) and grade (right) axes of grade_tonnage_plot"""
     twin = [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
     return ax.get_lines(), twin.get_lines(), twin
+
+
+def test_grade_tonnage_plot_trim_clip_and_cut_range_as_gtcurve():
+    rng = np.random.default_rng(1)
+    values, weights = rng.lognormal(0, 0.8, 300) - 0.2, rng.uniform(0.5, 2, 300)
+    table = pd.DataFrame({'v': values, 'w': weights})
+    ax = gs.grade_tonnage_plot(table, 'v', weights='w', trim=(0.0, 5.0), clip=2.5, cut_range=(0.0, 2.5), ncut=7)
+    tonnage, grade, _ = _gt_curves(ax)
+    expected_t, expected_g = _gtcurve_loop(values, weights, (0.0, 5.0), 2.5, (0.0, 2.5), 7)
+    np.testing.assert_allclose(tonnage[0].get_xdata(), np.linspace(0, 2.5, 7))
+    np.testing.assert_allclose(tonnage[0].get_ydata(), expected_t)
+    np.testing.assert_allclose(grade[0].get_ydata(), expected_g)
+    # a value at the upper trimming limit is left out, one at the lower limit is kept
+    ax = gs.grade_tonnage_plot(pd.DataFrame({'v': [1., 2., 3., 4.]}), 'v', trim=(1.0, 4.0), cut_range=(1., 3.), ncut=3)
+    np.testing.assert_allclose(_gt_curves(ax)[0][0].get_ydata(), [1., 2 / 3, 1 / 3])
+    plt.close('all')
+
+
+@pytest.mark.parametrize('nsim', [5, 10, 25, 100])
+def test_grade_tonnage_plot_average_and_band_as_gtcurve_sim(nsim):
+    """The mean of the curves, and the interpolated percentiles of the curves (numpy.percentile), which with
+    few realizations are inside the lowest and highest curve."""
+    rng = np.random.default_rng(nsim)
+    reals = rng.lognormal(0, 0.7, (200, nsim))
+    table = pd.DataFrame(reals, columns=['r%d' % k for k in range(nsim)])
+    ax = gs.grade_tonnage_plot(table, cut_range=(0.2, 2.0), ncut=9, average=True, band=(0.1, 0.9))
+    curves = [_gtcurve_loop(reals[:, k], np.ones(200), (-1e9, 1e9), 1e9, (0.2, 2.0), 9) for k in range(nsim)]
+    tons, grades = np.array([c[0] for c in curves]), np.array([c[1] for c in curves])
+    lines, grade_lines, twin = _gt_curves(ax)
+    np.testing.assert_allclose(lines[-1].get_ydata(), tons.mean(axis=0))
+    np.testing.assert_allclose(grade_lines[-1].get_ydata(), grades.mean(axis=0))
+    for axis, curve in ((ax, tons), (twin, grades)):
+        low, high = np.percentile(curve, [10, 90], axis=0)
+        vertices = axis.collections[0].get_paths()[0].vertices
+        np.testing.assert_allclose(vertices[1:10, 1], low)
+        np.testing.assert_allclose(vertices[11:20, 1][::-1], high)
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_average_of_chosen_models_and_legend():
+    data = pd.DataFrame({'data': [1., 2., 3.], 'a': [1., 1., 1.], 'b': [3., 3., 3.]})
+    ax = gs.grade_tonnage_plot(data, labels=['Data', 'A', None], realizations=[1, 2], average=True, band=(0.05, 0.95),
+                               cut_range=(1., 3.), ncut=3)
+    lines, grade_lines, _ = _gt_curves(ax)
+    np.testing.assert_allclose(lines[-1].get_ydata(), [1., 0.5, 0.5])  # mean of a (1, 0, 0) and b (1, 1, 1)
+    names = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert names == ['Data - Fraction', 'A - Fraction', 'Data - Grade', 'A - Grade', 'Average - Fraction',
+                     'Average - Grade', 'P5 to P95']
+    # a has nothing at or above the cutoffs 2 and 3, so there is no average grade or band of the grades there
+    np.testing.assert_allclose(grade_lines[-1].get_ydata(), [2., np.nan, np.nan])
+    from pygeostat.plotting.grade_tonnage_plot import _band
+    low, high = _band(np.array([[1., np.nan], [2., 3.]]), (0.1, 0.9))
+    np.testing.assert_allclose(low, [1.1, np.nan])
+    np.testing.assert_allclose(high, [1.9, np.nan])
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_new_options_are_checked_before_a_figure_is_made():
+    data = pd.DataFrame({'a': [1., 2., 3.], 'b': [2., 3., 4.]})
+    for kwargs, message in (({'trim': (3, 1)}, 'trim'), ({'cut_range': (2, 2)}, 'cut_range'),
+                            ({'band': (0.9, 0.1)}, 'band'), ({'band': (0.1, 0.9), 'realizations': [2]}, 'realizations'),
+                            ({'average': True, 'realizations': []}, 'realizations')):
+        with pytest.raises(ValueError, match=message):
+            gs.grade_tonnage_plot(data, **kwargs)
+    assert plt.get_fignums() == []
+
+
+def test_grade_tonnage_plot_zeros_of_the_two_axes_are_at_the_same_height():
+    data = pd.DataFrame({'a': [-5., -4., -3., -2., 3.], 'b': [-4., -3., -1., 2., 6.]})
+    ax = gs.grade_tonnage_plot(data, cut_range=(-5., 3.), ncut=5)
+    twin = ax.figure.axes[-1]
+    heights = [-a.get_ylim()[0] / (a.get_ylim()[1] - a.get_ylim()[0]) for a in (ax, twin)]
+    assert heights[0] > 0 and heights[0] == pytest.approx(heights[1])
+    plt.close('all')
 
 
 def test_grade_tonnage_plot_keeps_the_range_of_grades_that_do_not_reach_zero():

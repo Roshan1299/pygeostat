@@ -9,6 +9,7 @@
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
 from .secondary_axis_plot import _secondary_axis
 from .export_image import export_image
@@ -89,9 +90,32 @@ def _curve(values, weights, cutoffs):
     return above[first], grade, weights.sum()
 
 
+def _prepare(values, weights, trim, clip):
+    """The values and weights of a model without the values outside ``trim`` (below the lower limit or at
+    or above the upper one), with the values above ``clip`` set to ``clip``"""
+    if trim is not None:
+        keep = ~((values < trim[0]) | (values >= trim[1]))
+        values = values[keep]
+        weights = None if weights is None else weights[keep]
+    if clip is not None:
+        values = np.minimum(values, clip)
+    return values, weights
+
+
+def _band(curves, p):
+    """The lower and upper limit of the curves (one per row) at each cutoff: their interpolated percentiles
+    (as ``numpy.percentile``) for the two p-values. There is none at a cutoff where a curve has no value"""
+    low, high = np.full(curves.shape[1], np.nan), np.full(curves.shape[1], np.nan)
+    for i in range(curves.shape[1]):
+        if np.isfinite(curves[:, i]).all():
+            low[i], high[i] = np.percentile(curves[:, i], [100 * p[0], 100 * p[1]])
+    return low, high
+
+
 @set_plot_style
 def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, ncut=40,
-                       block_tonnes=None, colors=None, lw=None, alpha=None, xlabel=None,
+                       block_tonnes=None, colors=None, lw=None, alpha=None, trim=None, clip=None,
+                       cut_range=None, average=False, band=None, realizations=None, xlabel=None,
                        ylabel=None, title=None, xlim=None, ylim=None, ylim2=None, logx=False, legend=None, figsize=None, ax=None,
                        grid=None, axis_xy=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
@@ -104,6 +128,11 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
     The models are either the columns of one table (``var`` is a list of column names, for example
     the realizations of a simulation), or a list of tables with the same or a different column name
     in each (``data`` is a list). Values that are NaN are left out.
+
+    Differences from the CCG program ``gtcurve_sim``: the limits of ``band`` are interpolated percentiles
+    and not sorted curves picked by rank, and the average grade (and the band of the grades) stops at the
+    cutoff where a model has nothing above it, where ``gtcurve_sim`` uses a grade of 0. The fraction above
+    the cutoff counts such a model as 0 in both programs.
 
     Please review the documentation of the :func:`gs.set_style()
     <pygeostat.plotting.set_style.set_style>` and :func:`gs.export_image()
@@ -125,6 +154,8 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         cutoffs (array): cutoff grades. If None, ``ncut`` values from the smallest to the largest
             value of all the models (for a log axis, from the smallest positive value)
         ncut (int): number of default cutoffs
+        cut_range (tuple): (smallest, largest) default cutoff, instead of the smallest and largest value of all
+            the models. The ``ncut`` cutoffs are evenly spaced between them, ends included
         block_tonnes (float): tonnes in one unit of weight (for example the block volume times the
             density). If None, the tonnage is the fraction of the total weight of each model
         colors (list): one matplotlib color for each model (default: matplotlib's colour cycle)
@@ -132,6 +163,23 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
             the plot style)
         alpha (float or list): opacity of the lines from 0 (invisible) to 1, one value or one for each
             model. Lower it to draw many models, for example the realizations of a simulation
+        trim (tuple): (lower, upper) limits of the values: those below the lower limit or at or above the
+            upper one are left out, with their weights. Applied before ``clip``. As the trimming limits of
+            the CCG program ``gtcurve``
+        clip (float): upper limit of the values: the values above it are set to it (the clipping limit of
+            ``gtcurve``)
+        average (bool): also draw the average of the curves of the models (black), the mean of the
+            curves and not the curve of the mean value, as ``gtcurve_sim`` does. A model with nothing
+            above a cutoff has no grade there, so the average grade and the band end at the largest cutoff
+            where every model has a grade (``gtcurve_sim`` counts that grade as 0, which would pull the
+            average down). The tonnage of that model still counts as 0 in the average of the tonnages
+        band (tuple): (lower, upper) p-values, for example ``(0.1, 0.9)``: shade the range of the curves
+            between them. At each cutoff the band is the interpolated percentile of the curves (as
+            ``numpy.percentile``), so with few models the limits do not collapse to the lowest and highest
+            curve as the ranks of ``gtcurve_sim`` do
+        realizations (list): the positions of the models (0 is the first) that ``average`` and ``band`` are
+            made from, for example the realizations of a simulation when the first model is the data. If
+            None, all the models
         xlabel (str): x-axis label (default: "Cutoff Grade")
         ylabel (str): label of the tonnage axis (default: "Tonnes Above Cutoff", or
             "Fraction Above Cutoff" without ``block_tonnes``)
@@ -170,9 +218,31 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
 
         |
 
+        The data and the realizations of a simulation, with the average curve and the range between the
+        10th and 90th p-values of the realizations:
+
+        .. plot::
+
+            import pygeostat as gs
+            data = gs.ExampleData('accuracy_plot')
+            gs.grade_tonnage_plot(data, labels=['Data'] + [None] * 100, colors=['C3'] + ['0.6'] * 100,
+                                  lw=[2] + [0.5] * 100, alpha=[1] + [0.3] * 100,
+                                  realizations=list(range(1, 101)), average=True, band=(0.1, 0.9))
+
     |
     """
     models, labelled = _models(data, var, weights, labels)
+    if trim is not None and not trim[0] < trim[1]:
+        raise ValueError("`trim` needs a lower limit below the upper one")
+    if cut_range is not None and not cut_range[0] < cut_range[1]:
+        raise ValueError("`cut_range` needs a smallest cutoff below the largest one")
+    if band is not None and not 0 <= band[0] < band[1] <= 1:
+        raise ValueError("`band` needs two p-values from 0 to 1, the lower one below the upper one")
+    models = [(label,) + _prepare(v, w, trim, clip) for label, v, w in models]
+    chosen = list(range(len(models))) if realizations is None else list(realizations)
+    if (average or band is not None) and (not chosen or not all(
+            isinstance(i, (int, np.integer)) and 0 <= i < len(models) for i in chosen)):
+        raise ValueError("`realizations` needs positions from 0 to %d" % (len(models) - 1))
     legend = (labelled or len(models) <= 10) if legend is None else legend
     if colors is None:
         colors = ['C%d' % i for i in range(len(models))]
@@ -185,11 +255,14 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         pooled = np.concatenate([m[1][np.isfinite(m[1])] for m in models])
         if pooled.size == 0:
             raise ValueError("None of the models has a value")
-        if logx:
-            pooled = pooled[pooled > 0]
-            if pooled.size == 0:
-                raise ValueError("A log axis needs positive values")
-        low, high = pooled.min(), pooled.max()
+        if cut_range is not None:
+            low, high = cut_range
+        else:
+            if logx:
+                pooled = pooled[pooled > 0]
+                if pooled.size == 0:
+                    raise ValueError("A log axis needs positive values")
+            low, high = pooled.min(), pooled.max()
         cutoffs = np.geomspace(low, high, ncut) if logx else np.linspace(low, high, ncut)
     cutoffs = np.asarray(cutoffs, dtype=float)
     if logx and (cutoffs <= 0).any():
@@ -200,10 +273,21 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
             raise ValueError("The model %r has no values with a weight above zero" % (label,))
     tonnages = [t * block_tonnes if block_tonnes is not None else t / total for t, _, total in curves]
     grades = [g for _, g, _ in curves]
+    if average or band is not None:
+        tons_of, grades_of = np.array([tonnages[i] for i in chosen]), np.array([grades[i] for i in chosen])
     figsize = Parameters['plotting.grade_tonnage_plot.figsize'] if figsize is None else figsize
     left, right, line_colors, line_lws, line_alphas = list(tonnages), list(grades), list(colors), list(lws), list(alphas)
+    if average:
+        mean_grade = np.where(np.isfinite(grades_of).all(axis=0), grades_of.mean(axis=0), np.nan)
+        left.append(tons_of.mean(axis=0))
+        right.append(mean_grade)
+        line_colors.append('k')
+        line_lws.append(2)
+        line_alphas.append(None)
     ax = _secondary_axis(
         cutoffs, left, right, colors=line_colors, colors2=line_colors, ls='--', ls2='-', lw=line_lws, alpha=line_alphas,
+        fill=_band(tons_of, band) if band is not None else None,
+        fill2=_band(grades_of, band) if band is not None else None,
         xlabel=xlabel if xlabel is not None else 'Cutoff Grade',
         ylabel=ylabel if ylabel is not None else
         ('Fraction Above Cutoff' if block_tonnes is None else 'Tonnes Above Cutoff'),
@@ -216,6 +300,12 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
     handles = [Line2D([], [], color=colors[i], ls=ls,
                       **{k: v for k, v in (('lw', lws[i]), ('alpha', alphas[i])) if v is not None}) for ls in ('--', '-') for i in shown]
     names = ['%s - %s' % (models[i][0], w) for w in (what, 'Grade') for i in shown]
+    if average:
+        handles += [Line2D([], [], color='k', ls='--', lw=2), Line2D([], [], color='k', lw=2)]
+        names += ['Average - %s' % what, 'Average - Grade']
+    if band is not None:
+        handles.append(Patch(color='0.5', alpha=0.35, lw=0))
+        names.append('P%d to P%d' % (round(band[0] * 100), round(band[1] * 100)))
     if legend and handles:
         ax.legend(handles, names, loc='upper center', bbox_to_anchor=(0.5, -0.16),
                   ncol=min(3, len(names)), frameon=False, fontsize=ax.yaxis.get_ticklabels()[0].get_size())
