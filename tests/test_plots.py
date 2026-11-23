@@ -1383,6 +1383,44 @@ def test_grade_tonnage_plot_keeps_the_range_of_grades_that_do_not_reach_zero():
     plt.close('all')
 
 
+def test_grade_tonnage_plot_axis_colours():
+    """'line' colours both vertical axes like the line of one model; a pair sets each axis; None keeps the style."""
+    data = pd.DataFrame({'g': [1., 2., 3., 4.]})
+    ax = gs.grade_tonnage_plot(data, 'g', colors=['red'], axis_colors='line')
+    twin = _gt_twin(ax)
+    ax.figure.canvas.draw()
+    for axis, side in ((ax, 'left'), (twin, 'right')):
+        assert axis.yaxis.label.get_color() == 'red'
+        assert axis.get_yticklabels()[0].get_color() == 'red'
+        assert axis.yaxis.get_major_ticks()[0].tick1line.get_color() == 'red' or \
+            axis.yaxis.get_major_ticks()[0].tick2line.get_color() == 'red'
+        assert axis.spines[side].get_edgecolor()[:3] == (1.0, 0.0, 0.0)
+    assert ax.xaxis.label.get_color() != 'red'  # only the vertical axes
+    plt.close('all')
+    ax = gs.grade_tonnage_plot(data, 'g', axis_colors=('navy', None))
+    twin = _gt_twin(ax)
+    assert ax.yaxis.label.get_color() == 'navy' and twin.yaxis.label.get_color() != 'navy'
+    plt.close('all')
+    with pytest.raises(ValueError, match="for one model"):
+        gs.grade_tonnage_plot(gs.ExampleData('3d_estimate'), ['True', 'Estimate'], axis_colors='line')
+    with pytest.raises(ValueError, match='pair'):
+        gs.grade_tonnage_plot(data, 'g', axis_colors=('red',))
+    assert len(plt.get_fignums()) == 0
+
+
+def test_grade_tonnage_plot_axes_options():
+    data = pd.DataFrame({'g': [1., 2., 3., 4.]})
+    ax = gs.grade_tonnage_plot(data, 'g', ticks=6, fontsize={'label': 15, 'tick': 8}, background='lightgrey')
+    twin = _gt_twin(ax)
+    ax.figure.canvas.draw()
+    assert ax.yaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert twin.yaxis.get_major_ticks()[0].tick2line.get_markersize() == 6
+    assert ax.yaxis.label.get_fontsize() == 15 and twin.yaxis.label.get_fontsize() == 15
+    assert twin.get_yticklabels()[0].get_fontsize() == 8
+    assert tuple(ax.get_facecolor()[:3]) == (0.8274509803921568,) * 3
+    plt.close('all')
+
+
 def test_grade_tonnage_plot_limits_of_the_two_vertical_axes():
     """ylim sets the tonnage axis (left) and ylim2 the grade axis (right); without them the zeros still line up."""
     data = pd.DataFrame({'g': [1., 2., 3., 4.]})

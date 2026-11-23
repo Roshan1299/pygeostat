@@ -117,7 +117,8 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
                        block_tonnes=None, colors=None, lw=None, alpha=None, trim=None, clip=None,
                        cut_range=None, average=False, band=None, realizations=None, xlabel=None,
                        ylabel=None, title=None, xlim=None, ylim=None, ylim2=None, logx=False, legend=None, figsize=None, ax=None,
-                       grid=None, axis_xy=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
+                       grid=None, axis_xy=None, axis_colors=None, ticks=None, fontsize=None, background=None,
+                       plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot the grade-tonnage curves of one variable for several models, to compare them on one plot.
     For each cutoff grade the dashed lines (left axis) are the tonnage of the blocks at or above the
@@ -159,6 +160,17 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         block_tonnes (float): tonnes in one unit of weight (for example the block volume times the
             density). If None, the tonnage is the fraction of the total weight of each model
         colors (list): one matplotlib color for each model (default: matplotlib's colour cycle)
+        axis_colors: colour of the two vertical axes (their label, tick marks, tick labels and line), to tell which
+            one belongs to which curves. ``'line'`` uses the colour of the line of the model, for a plot of one
+            model. Or a pair ``(left, right)`` of matplotlib colors for the tonnage and the grade axes, where None
+            keeps the colour of the style for that axis. Black, as in the style, if None
+        ticks (bool, float or dict): tick marks on all axes. ``True`` draws them, ``False`` removes them, a
+            number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
+            ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number), or a
+            dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's sizes if None
+        background (color): colour of the plotting area, for example ``'lightgrey'`` or ``'white'``. The
+            style's if None
         lw (float or list): width of the lines, one value or one for each model (default: the one of
             the plot style)
         alpha (float or list): opacity of the lines from 0 (invisible) to 1, one value or one for each
@@ -248,6 +260,12 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         colors = ['C%d' % i for i in range(len(models))]
     if len(colors) != len(models):
         raise ValueError("`colors` needs one entry for each of the %d models" % len(models))
+    if isinstance(axis_colors, str) and axis_colors == 'line':
+        if len(models) != 1:
+            raise ValueError("axis_colors='line' is for one model, give a pair of colors for %d models" % len(models))
+        axis_colors = (colors[0], colors[0])
+    elif axis_colors is not None and len(axis_colors) != 2:
+        raise ValueError("axis_colors must be 'line' or a pair (left, right), not %r" % (axis_colors,))
     lws, alphas = _each(lw, len(models), 'lw'), _each(alpha, len(models), 'alpha')
     if ncut < 2:
         raise ValueError("`ncut` must be at least 2")
@@ -292,7 +310,8 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         ylabel=ylabel if ylabel is not None else
         ('Fraction Above Cutoff' if block_tonnes is None else 'Tonnes Above Cutoff'),
         ylabel2='Mean Grade Above Cutoff', title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
-        legend=False, figsize=figsize, ax=ax, grid=grid, axis_xy=axis_xy)
+        axis_colors=axis_colors, legend=False, figsize=figsize, ax=ax, grid=grid, axis_xy=axis_xy, ticks=ticks,
+        fontsize=fontsize, background=background)
     if block_tonnes is not None:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: '{:,.0f}'.format(v)))
     shown = [i for i, m in enumerate(models) if m[0] is not None]
