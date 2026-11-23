@@ -1135,6 +1135,251 @@ def test_variogram_plot_simulation_line_style_sill_and_realization_label():
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Simulated', 'Reference']
     plt.close('all')
 
+def _swath_twin(ax):
+    """The axis of the bars, which shares the x axis with the one of the lines"""
+    return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
+
+
+def test_swath_plot_means_and_counts():
+    data = pd.DataFrame({'x': [0., 1., 2., 3.], 'y': [0., 0., 1., 1.], 'z': [0.] * 4,
+                         'a': [1., 3., 5., np.nan], 'b': [2., 2., 2., 2.]})
+    ax = gs.swath_plot(data, ['a', 'b'], orient='x', x='x', y='y', z='z', nbins=2)
+    lines = {line.get_label(): line.get_ydata() for line in ax.get_lines()}
+    np.testing.assert_allclose(lines['a'], [2., 5.])
+    np.testing.assert_allclose(lines['b'], [2., 2.])
+    twin = _swath_twin(ax)
+    heights = sorted(set(np.round([p.get_height() for p in twin.patches], 3)))
+    assert heights == [1.0, 2.0]  # counts 2, 2 for b and 2, 1 for a
+    assert twin.get_ylabel() == 'Data Count (Bars)' and ax.get_ylabel() == 'Value (lines)'
+    plt.close('all')
+
+
+def test_swath_plot_orients_and_errors():
+    data = gs.ExampleData('3d_estimate')
+    axes = gs.swath_plot(data, ['True', 'Estimate'], orient=['x', 'y', 'z'], nbins=5)
+    assert len(axes) == 3
+    with pytest.raises(ValueError):
+        gs.swath_plot(data, 'True', orient='w')
+    with pytest.raises(ValueError):
+        gs.swath_plot(data, 'nope')
+    flat = pd.DataFrame({'x': [0., 1.], 'z': [0., 0.], 'a': [1., 2.]})
+    with pytest.raises(ValueError, match="'z'"):
+        gs.swath_plot(flat, 'a', orient='z', x='x', y='x', z='z')
+    with pytest.raises(ValueError, match='None of the variables'):
+        gs.swath_plot(flat.assign(a=np.nan), 'a', x='x', y='x', z='z')
+    plt.close('all')
+
+
+def test_swath_plot_fixed_slice_width():
+    data = pd.DataFrame({'x': np.arange(0., 10.5, 0.5), 'y': 0., 'z': 0., 'a': np.arange(21.)})
+    ax = gs.swath_plot(data, 'a', orient='x', x='x', y='y', z='z', width=2.5)
+    np.testing.assert_allclose(ax.get_lines()[0].get_xdata(), [1.25, 3.75, 6.25, 8.75])
+    ax = gs.swath_plot(data, 'a', orient='x', x='x', y='y', z='z', width=50)
+    assert len(ax.get_lines()[0].get_xdata()) == 1
+    with pytest.raises(ValueError, match='positive'):
+        gs.swath_plot(data, 'a', x='x', y='y', z='z', width=0)
+    plt.close('all')
+
+
+def test_swath_plot_labels():
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data, 'True', orient='x')
+    assert ax.get_ylabel() == 'True (lines)' and len(ax.collections) == 0  # the values are not drawn as points
+    ax = gs.swath_plot(data, ['True', 'Estimate'], orient='x', labels=['Data', 'Estimate'])
+    assert ax.get_ylabel() == 'Value (lines)'
+    assert [t.get_text() for t in ax.texts] == ['Data', 'Estimate']
+    ax = gs.swath_plot(data, ['True', 'Estimate'], orient='x', ylabel='Grade')
+    assert ax.get_ylabel() == 'Grade'
+    plt.close('all')
+
+
+def test_swath_plot_draws_on_the_axis_it_is_given():
+    """With ax, no figure is made: the axis is returned and its twin is in the same figure."""
+    data = gs.ExampleData('3d_estimate')
+    fig, axes = plt.subplots(1, 2)
+    ax = gs.swath_plot(data, 'True', orient='x', ax=axes[1])
+    assert ax is axes[1] and _swath_twin(ax).figure is fig
+    assert plt.get_fignums() == [fig.number]
+    plt.close('all')
+
+
+def test_swath_plot_bar_opacity_and_line_width():
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data, ['True', 'Estimate'], orient='x')
+    twin = _swath_twin(ax)
+    assert {p.get_alpha() for p in twin.patches} == {gs.Parameters['plotting.swath_plot.bar_alpha']} and ax.get_lines()[0].get_linewidth() == 2
+    ax = gs.swath_plot(data, 'True', orient='x', bar_alpha=0.1, lw=4)
+    twin = _swath_twin(ax)
+    assert {p.get_alpha() for p in twin.patches} == {0.1} and ax.get_lines()[0].get_linewidth() == 4
+    plt.close('all')
+
+
+
+def test_swath_plot_follows_the_style_and_the_parameters():
+    """The figure size, line width and bar opacity come from gs.Parameters."""
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data, 'True', orient='x')
+    assert tuple(ax.figure.get_size_inches()) == (7, 4.5)
+    saved = {k: gs.Parameters[k] for k in ('plotting.swath_plot.figsize', 'plotting.swath_plot.lw',
+                                          'plotting.swath_plot.bar_alpha')}
+    try:
+        gs.Parameters['plotting.swath_plot.figsize'] = (5, 3)
+        gs.Parameters['plotting.swath_plot.lw'] = 5
+        gs.Parameters['plotting.swath_plot.bar_alpha'] = 0.6
+        ax = gs.swath_plot(data, 'True', orient='x')
+        twin = _swath_twin(ax)
+        assert tuple(ax.figure.get_size_inches()) == (5, 3)
+        assert ax.get_lines()[0].get_linewidth() == 5 and {p.get_alpha() for p in twin.patches} == {0.6}
+    finally:
+        for k, v in saved.items():
+            gs.Parameters[k] = v
+    plt.close('all')
+
+def test_swath_plot_stacks_the_directions_in_one_figure(tmp_path):
+    data = gs.ExampleData('3d_estimate')
+    axes = gs.swath_plot(data, ['True', 'Estimate'], orient=['x', 'y', 'z'], width=2,
+                         figsize=(6, 3), output_file=str(tmp_path / 'swath.png'))
+    assert len(axes) == 3 and len({a.figure for a in axes}) == 1
+    assert tuple(axes[0].figure.get_size_inches()) == (6, 9)
+    assert [a.get_xlabel() for a in axes] == ['Easting (m)', 'Northing (m)', 'Elevation (m)']
+    assert [f.name for f in tmp_path.iterdir()] == ['swath.png']
+    plt.close('all')
+
+
+def test_swath_plot_stacked_panels_use_one_tick_format():
+    data = gs.ExampleData('oilsands')
+    axes = gs.swath_plot(data, 'Bitumen', orient=['x', 'y', 'z'])
+    plt.gcf().canvas.draw()
+    ylabels = [[t.get_text() for t in a.get_yticklabels() if t.get_text()] for a in axes]
+    decimals = {len(t.partition('.')[2]) for labels in ylabels for t in labels}
+    assert len(decimals) == 1
+    xlabels = [t.get_text() for a in axes for t in a.get_xticklabels() if t.get_text()]
+    assert any(',' in t for t in xlabels) and all(',' in t for t in xlabels if len(t) > 4)
+    plt.close('all')
+
+
+def test_swath_plot_labels_on_the_lines_and_counts_with_separators():
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data, ['True', 'Estimate'], orient='x')
+    twin = _swath_twin(ax)
+    assert ax.get_legend() is None and ax.get_zorder() > twin.get_zorder()
+    for line, text in zip(ax.get_lines(), ax.texts):
+        assert text.get_color() == line.get_color()
+        assert text.xy in zip(*line.get_data())  # at a point of its own line
+    assert twin.yaxis.get_major_formatter()(12345, 0) == '12,345'
+    plt.close('all')
+
+
+def test_swath_plot_both_sides_use_the_same_sizes():
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data, ['True', 'Estimate'], orient='x')
+    twin = _swath_twin(ax)
+    assert twin.yaxis.label.get_size() == ax.yaxis.label.get_size()
+    assert twin.get_yticklabels()[0].get_size() == ax.get_yticklabels()[0].get_size()
+    plt.close('all')
+
+
+def test_swath_plot_errors_leave_no_figure_open():
+    data = pd.DataFrame({'x': [0., 1.], 'z': [0., 0.], 'a': [1., 2.]})
+    plt.close('all')
+    for call in (lambda: gs.swath_plot(data, 'a', orient=['x', 'z'], x='x', y='x', z='z'),
+                 lambda: gs.swath_plot(data.assign(a=np.nan), 'a', x='x', y='x', z='z'),
+                 lambda: gs.swath_plot(data, 'a', x='x', y='x', z='z', labels=['p', 'q'])):
+        with pytest.raises(ValueError):
+            call()
+    assert plt.get_fignums() == []
+
+
+def test_swath_plot_reads_columns_and_axis_names_of_a_2d_data_set():
+    """A data set with other column names and no z: the columns come from the DataFile, the axis names
+    from the plotting parameters."""
+    data = gs.ExampleData('cluster')  # columns Xlocation and Ylocation, 0.5 to 48.5, 140 samples
+    axes = gs.swath_plot(data, 'Primary', orient=['x', 'y'], nbins=10)
+    centers = 0.5 + 4.8 * (np.arange(10) + 0.5)
+    for ax, name in zip(axes, ('Easting (m)', 'Northing (m)')):
+        np.testing.assert_allclose(ax.get_lines()[0].get_xdata(), centers)
+        assert ax.get_xlabel() == name and ax.get_ylabel() == 'Primary (lines)'
+    with pytest.raises(ValueError, match='`z`'):
+        gs.swath_plot(data, 'Primary', orient='z')
+    names = {k: gs.Parameters[k] for k in ('plotting.xname', 'plotting.unit')}
+    try:
+        gs.Parameters['plotting.xname'], gs.Parameters['plotting.unit'] = 'X location', None
+        assert gs.swath_plot(data, 'Primary', orient='x').get_xlabel() == 'X location'
+    finally:
+        for k, v in names.items():
+            gs.Parameters[k] = v
+    plt.close('all')
+
+
+def test_swath_plot_even_right_ticks_no_tick_at_the_right_edge_and_labels_on_the_lines():
+    data = gs.ExampleData('3d_estimate')
+    axes = gs.swath_plot(data, ['True', 'Estimate'], orient=['x', 'y'], nbins=15)
+    for a in axes:
+        twin = _swath_twin(a)
+        ticks = twin.get_yticks()
+        ticks = ticks[(ticks >= twin.get_ylim()[0]) & (ticks <= twin.get_ylim()[1])]
+        np.testing.assert_allclose(np.diff(ticks), np.diff(ticks)[0])
+        np.testing.assert_allclose(ticks, np.round(ticks))  # counts: whole numbers, not 2.5 shown as 2
+    for nbins in range(5, 30):
+        a = gs.swath_plot(data, ['True', 'Estimate'], nbins=nbins)
+        left, right = a.get_xlim()
+        assert a.get_xticks().max() <= right - 0.08 * (right - left)
+        plt.close('all')
+    assert all([t.get_text() for t in a.texts] == ['True', 'Estimate'] for a in axes)  # on every plot
+    assert list(gs.swath_plot(data, ['True', 'Estimate'], legend=False).texts) == []
+    assert list(gs.swath_plot(data, 'True').texts) == []  # a single line needs no label
+    plt.close('all')
+
+
+def test_swath_plot_label_edge_cases_variable_without_values_coinciding_lines_and_margins():
+    from pygeostat.plotting.swath_plot import _label_lines
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.swath_plot(data.data.assign(Empty=np.nan), ['True', 'Empty'], x=data.x, y=data.y, z=data.z)
+    assert [t.get_text() for t in ax.texts] == ['True']  # no value, no label, and no error
+    means = pd.DataFrame({'a': [1.0, 2.0, 3.0], 'b': [1.0, 2.0, 3.0]}, index=[1, 2, 3])
+    fig, ax = plt.subplots()
+    _label_lines(ax, means, ['a', 'b'], ['A', 'B'], ['red', 'blue'])
+    assert [t.get_va() for t in ax.texts] == ['bottom', 'top']  # not on top of each other
+    # the extra room is only made when there are labels
+    for ax in (gs.swath_plot(data, ['True', 'Estimate'], legend=False), gs.swath_plot(data, 'True')):
+        assert ax.margins()[1] == 0.05
+    assert gs.swath_plot(data, ['True', 'Estimate']).margins()[1] == 0.16
+    plt.close('all')
+
+
+def test_swath_plot_label_is_where_its_line_is_furthest_from_the_others_above_if_it_is_the_higher():
+    from pygeostat.plotting.swath_plot import _label_lines
+    means = pd.DataFrame({'a': [1.0, 1.0, 5.0, 1.0, 1.0], 'b': [1.0, 1.0, 1.0, 1.0, 1.0]}, index=[1, 2, 3, 4, 5])
+    fig, ax = plt.subplots()
+    ax.set_xlim(0, 6)
+    ax.set_ylim(0, 6)
+    _label_lines(ax, means, ['a', 'b'], ['High', 'Low'], ['red', 'blue'])
+    high, low = ax.texts
+    assert (high.xy, high.get_va(), high.get_ha()) == ((3, 5.0), 'bottom', 'center')
+    assert (low.xy, low.get_va()) == ((3, 1.0), 'top')
+    # near the left or right edge the label grows inwards, so it stays inside the plot
+    for peak, expected in ([0, 'left'], [4, 'right']):
+        ax.clear()
+        ax.set_xlim(0, 6)
+        ax.set_ylim(0, 6)
+        values = [1.0] * 5
+        values[peak] = 5.0
+        _label_lines(ax, pd.DataFrame({'a': values, 'b': [1.0] * 5}, index=[1, 2, 3, 4, 5]), ['a', 'b'],
+                     ['Peak', 'Flat'], ['red', 'blue'])
+        assert (ax.texts[0].xy[0], ax.texts[0].get_ha()) == (peak + 1, expected)
+    plt.close('all')
+
+
+def test_swath_plot_count_ticks_are_whole_numbers_for_a_small_largest_count():
+    data = pd.DataFrame({'x': np.r_[np.zeros(10), np.ones(3)], 'y': 0., 'z': 0., 'a': np.arange(13.)})
+    ax = gs.swath_plot(data, 'a', orient='x', x='x', y='y', z='z', nbins=2)
+    twin = _swath_twin(ax)
+    ticks = twin.get_yticks()
+    ticks = ticks[(ticks >= twin.get_ylim()[0]) & (ticks <= twin.get_ylim()[1])]
+    np.testing.assert_allclose(ticks, np.round(ticks))
+    np.testing.assert_allclose(np.diff(ticks), np.diff(ticks)[0])
+    plt.close('all')
+
 def _gt_twin(ax):
     """The axis of the grades, which shares the x axis with the one of the tonnages"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]

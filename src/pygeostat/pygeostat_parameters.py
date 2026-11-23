@@ -300,6 +300,9 @@ default_parameters = {
 	'plotting.location_plot.s': [20, _validate_float_or_None],
 	'plotting.location_plot.c': ['.4', _validate_color],
 	'plotting.location_plot.lw': ['5', _validate_float_or_None],
+	'plotting.swath_plot.figsize': [(7, 4.5), _validate_list],
+	'plotting.swath_plot.lw': [2, _validate_float],
+	'plotting.swath_plot.bar_alpha': [1.0, _validate_float],
 	'plotting.scatter_plot.s': [None, _validate_float_or_None],
 	'plotting.scatter_plot.c': ['kde', _validate_kde_or_color],
 	'plotting.scatter_plot.cmap': ['viridis', _validate_string],
@@ -426,6 +429,9 @@ default_parameter_descriptions = {
 	'plotting.location_plot.c': ('Color of scatter in location_plot (and slice_plot), which is a valid Matplotlib '
 						  'color specifier'),
 	'plotting.location_plot.lw': ('Line width for location plot if the orient is xz or yz and the drill hole id is provided/inferred'),
+	'plotting.swath_plot.figsize': 'Size (width, height) of the plot of one direction in swath_plot, a wide figure.',
+	'plotting.swath_plot.lw': 'Width of the lines in swath_plot.',
+	'plotting.swath_plot.bar_alpha': 'Opacity of the bars in swath_plot, from 0 (invisible) to 1.',
 	'plotting.scatter_plot.s': ('Size of scatter in scatter_plot, which is based on Matplotlib.rcParams if '
 						   'None'),
 	'plotting.scatter_plot.c': ('Color of scatter in scatter_plot, which is either a valid Matplotlib '
