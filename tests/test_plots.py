@@ -1232,3 +1232,19 @@ def test_secondary_axis_plot_errors_leave_no_figure():
         with pytest.raises(ValueError, match=message):
             gs.secondary_axis_plot(**args)
     assert len(plt.get_fignums()) == 0
+
+
+def test_secondary_axis_plot_band_colour_and_legend_arguments():
+    """fill_color, fill_alpha and legend_kws replace the values that were fixed in the code; the defaults are unchanged."""
+    plt.close('all')
+    x = np.arange(5.)
+    ax = gs.secondary_axis_plot(x, x, 2 * x, fill=(x - 1, x + 1), fill_label='Band', legend=True)
+    assert tuple(np.round(ax.collections[0].get_facecolor()[0], 2)) == (0.5, 0.5, 0.5, 0.35)
+    assert not ax.get_legend().get_frame_on() and ax.get_legend().get_title().get_text() == ''
+    plt.close('all')
+    ax = gs.secondary_axis_plot(x, x, 2 * x, fill=(x - 1, x + 1), fill_label='Band', legend=True, fill_color='r',
+                                fill_alpha=0.6, legend_kws=dict(frameon=True, title='Lines'))
+    assert tuple(np.round(ax.collections[0].get_facecolor()[0], 2)) == (1.0, 0.0, 0.0, 0.6)
+    assert tuple(np.round(ax.get_legend().legend_handles[-1].get_facecolor(), 2)) == (1.0, 0.0, 0.0, 0.6)
+    assert ax.get_legend().get_frame_on() and ax.get_legend().get_title().get_text() == 'Lines'
+    plt.close('all')

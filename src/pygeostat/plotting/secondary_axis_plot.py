@@ -66,7 +66,7 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
                     alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
                     title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True, axis_colors=None,
                     legend=None, figsize=None, ax=None, grid=None, axis_xy=None, ticks=None, fontsize=None,
-                    background=None):
+                    background=None, fill_color='0.5', fill_alpha=0.35, legend_kws=None):
     """The drawing of :func:`secondary_axis_plot`, without the plot style and the export, so that a plot built
     on it (such as grade_tonnage_plot) can add to the figure before it is saved. Returns the left axis, with the
     right one as ``ax.twin``"""
@@ -107,7 +107,7 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
     twin = ax.twinx()
     for axis, band in ((ax, fill), (twin, fill2)):
         if band is not None:
-            axis.fill_between(x, band[0], band[1], color='0.5', alpha=0.35, lw=0)
+            axis.fill_between(x, band[0], band[1], color=fill_color, alpha=fill_alpha, lw=0)
     handles = []
     for axis, arrays, side_colors, style, side_labels in ((ax, left, colors, ls, labels),
                                                           (twin, right, colors2, ls2, labels2)):
@@ -137,10 +137,11 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
     if len(handles) > 1 if legend is None else legend:
         entries = list(handles)
         if fill_label is not None and (fill is not None or fill2 is not None):
-            entries.append((Patch(color='0.5', alpha=0.35, lw=0), fill_label))
-        ax.legend([h for h, _ in entries], [l for _, l in entries], loc='upper center',
-                  bbox_to_anchor=(0.5, -0.16), ncol=min(3, len(entries)), frameon=False,
-                  fontsize=ax.yaxis.get_ticklabels()[0].get_size())
+            entries.append((Patch(color=fill_color, alpha=fill_alpha, lw=0), fill_label))
+        legend_args = dict(loc='upper center', bbox_to_anchor=(0.5, -0.16), ncol=min(3, len(entries)), frameon=False,
+                           fontsize=ax.yaxis.get_ticklabels()[0].get_size())
+        legend_args.update(legend_kws or {})
+        ax.legend([h for h, _ in entries], [l for _, l in entries], **legend_args)
     ax.twin = twin
     return ax
 
@@ -150,8 +151,8 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
                         alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
                         title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True,
                         axis_colors=None, legend=None, figsize=None, ax=None, grid=None, axis_xy=None, ticks=None,
-                        fontsize=None, background=None, plot_style=None, custom_style=None, output_file=None,
-                        **kwargs):
+                        fontsize=None, background=None, fill_color='0.5', fill_alpha=0.35, legend_kws=None,
+                        plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot lines against one x axis, some on a left y axis and some on a right y axis with its own scale, for
     example two different properties of the same samples or models. Each axis has its own label, limits and
@@ -180,6 +181,8 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
         fill, fill2 (tuple): ``(lower, upper)``, each one value per ``x``, a grey band drawn behind the lines of
             the left or of the right axis, for example the range of several realizations
         fill_label (str): legend name of the bands
+        fill_color (color): colour of the bands. Default: grey, '0.5'
+        fill_alpha (float): opacity of the bands, from 0 (invisible) to 1. Default: 0.35
         xlabel, ylabel, ylabel2 (str): labels of the x axis, the left axis and the right axis
         title (str): title of the plot
         xlim (tuple): ``(lower, upper)`` limits of the x axis. The data's if None
@@ -192,6 +195,8 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
             lines they belong to. A pair ``(left, right)``, or ``'line'`` for the colours of the lines when there is
             one line on each axis. By default they keep the colour of the style
         legend (bool): write a legend below the plot. Default: True if there is more than one line
+        legend_kws (dict): arguments for ``ax.legend`` that replace the defaults (``loc``, ``bbox_to_anchor``,
+            ``ncol``, ``frameon`` and ``fontsize``), for example ``dict(loc='best', bbox_to_anchor=None)``
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.secondary_axis_plot.figsize']``
         ax (ax): Matplotlib axis to plot on, which gets the left axis. The right axis is a twin axis
@@ -233,7 +238,8 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
                          lw=lw, alpha=alpha, fill=fill, fill2=fill2, fill_label=fill_label, xlabel=xlabel,
                          ylabel=ylabel, ylabel2=ylabel2, title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
                          align_zeros=align_zeros, axis_colors=axis_colors, legend=legend, figsize=figsize, ax=ax,
-                         grid=grid, axis_xy=axis_xy, ticks=ticks, fontsize=fontsize, background=background)
+                         grid=grid, axis_xy=axis_xy, ticks=ticks, fontsize=fontsize, background=background,
+                         fill_color=fill_color, fill_alpha=fill_alpha, legend_kws=legend_kws)
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
     return ax
