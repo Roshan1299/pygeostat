@@ -1380,6 +1380,57 @@ def test_swath_plot_count_ticks_are_whole_numbers_for_a_small_largest_count():
     np.testing.assert_allclose(np.diff(ticks), np.diff(ticks)[0])
     plt.close('all')
 
+
+def _two_swath_sets():
+    first = pd.DataFrame({'x': [0., 1., 2., 3.], 'y': 0., 'z': 0., 'v': [1., 3., 5., 7.]})
+    second = pd.DataFrame({'x': [2., 3., 4., 5., 6.], 'y': 0., 'z': 0., 'v': [10., 10., 20., 20., 30.]})
+    return first, second
+
+
+def test_swath_plot_several_data_sets_share_the_slices():
+    """Each data set is a line; the slices span the coordinates of all of them; counts are for each data set."""
+    plt.close('all')
+    first, second = _two_swath_sets()
+    ax = gs.swath_plot([first, second], 'v', x='x', y='y', z='z', width=2, labels=['Data', 'Estimate'])
+    lines = {line.get_label(): (line.get_xdata(), line.get_ydata()) for line in ax.get_lines()}
+    # slices 0-2, 2-4 and 4-6, closed on the right: the first set has no value in the last one
+    np.testing.assert_allclose(lines['Data'][0], [1., 3.])
+    np.testing.assert_allclose(lines['Data'][1], [3., 7.])
+    np.testing.assert_allclose(lines['Estimate'][0], [1., 3., 5.])
+    np.testing.assert_allclose(lines['Estimate'][1], [10., 15., 25.])
+    twin = _swath_twin(ax)
+    assert sorted({p.get_height() for p in twin.patches} - {0}) == [1.0, 2.0, 3.0]  # 0: no value in the last slice
+    plt.close('all')
+    ax = gs.swath_plot([first, second], 'v', x='x', y='y', z='z', nbins=2)
+    assert [l.get_label() for l in ax.get_lines()] == ['Data 1', 'Data 2']  # same name in both, so numbered
+    plt.close('all')
+    ax = gs.swath_plot([first, second.rename(columns={'v': 'w'})], ['v', 'w'], x='x', y='y', z='z', nbins=2)
+    assert [l.get_label() for l in ax.get_lines()] == ['v', 'w']  # different names are the labels
+    plt.close('all')
+
+
+def test_swath_plot_several_data_sets_errors_leave_no_figure():
+    plt.close('all')
+    first, second = _two_swath_sets()
+    args = dict(x='x', y='y', z='z')
+    with pytest.raises(ValueError, match='one name for each of the 2 data sets'):
+        gs.swath_plot([first, second], ['v', 'v', 'v'], **args)
+    with pytest.raises(ValueError, match="'w' is not a column"):
+        gs.swath_plot([first, second], ['v', 'w'], **args)
+    with pytest.raises(ValueError, match='list of data sets is empty'):
+        gs.swath_plot([], 'v', **args)
+    with pytest.raises(ValueError, match='gs.DataFile or a pd.DataFrame'):
+        gs.swath_plot([first, 3], 'v', **args)
+    assert len(plt.get_fignums()) == 0
+
+
+def test_swath_plot_count_label():
+    plt.close('all')
+    first, _ = _two_swath_sets()
+    ax = gs.swath_plot(first, 'v', x='x', y='y', z='z', nbins=2, count_label='Number of samples', ylabel='Grade')
+    assert _swath_twin(ax).get_ylabel() == 'Number of samples' and ax.get_ylabel() == 'Grade'
+    plt.close('all')
+
 def _gt_twin(ax):
     """The axis of the grades, which shares the x axis with the one of the tonnages"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]

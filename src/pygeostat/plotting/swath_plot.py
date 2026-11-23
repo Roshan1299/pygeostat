@@ -59,7 +59,9 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
     left out of the line.
 
     ``var`` can be a list of variables to compare on one plot (for example the data and an
-    estimate), and ``orient`` can be a list of directions, which are stacked in one figure.
+    estimate), and ``orient`` can be a list of directions, which are stacked in one figure. To compare
+    models that are in different files, give ``data`` as a list of data sets: each is cut with the same
+    slices, which span the coordinates of all of them, and each is a line.
 
     Please review the documentation of the :func:`gs.set_style()
     <pygeostat.plotting.set_style.set_style>` and :func:`gs.export_image()
@@ -67,8 +69,10 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
     their use in this function can be understood.
 
     Parameters:
-        data: DataFile or DataFrame with the coordinates and the variables
-        var (str or list): column name(s) of the variable(s) to plot
+        data: DataFile or DataFrame with the coordinates and the variables, or a list of them. With a list,
+            each data set gives one line, and the coordinates of each are read from it
+        var (str or list): column name(s) of the variable(s) to plot. With a list of data sets, one name
+            used for all of them, or a list with one name for each
         orient (str or list): ``'x'``, ``'y'`` or ``'z'``, or a list of them. One figure is made for each
         x, y, z (str): column names of the coordinates. Read from a DataFile when it knows them
         nbins (int): number of equal-width slices between the smallest and largest coordinate
@@ -76,7 +80,8 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
             coordinate. Instead of ``nbins``
         bins (array): slice edges, instead of ``nbins`` and ``width``
         colors (list): one matplotlib color for each line (default: matplotlib's colour cycle)
-        labels (list): one legend label for each line (default: the column names)
+        labels (list): one legend label for each line (default: the column names, or ``'Data 1'``,
+            ``'Data 2'``, ... for a list of data sets that use the same column name)
         bars (bool): draw the counts as bars on the right axis
         bar_alpha (float): opacity of the bars, from 0 (invisible) to 1. If None, ``gs.Parameters['plotting.swath_plot.bar_alpha']``
         lw (float): width of the lines. If None, ``gs.Parameters['plotting.swath_plot.lw']``
@@ -137,14 +142,20 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
     |
     """
     from ..data.data import DataFile
-    names = [var] if isinstance(var, str) else list(var)
+    several = isinstance(data, (list, tuple))
+    sets = list(data) if several else [data]
+    if several and not sets:
+        raise ValueError("The list of data sets is empty")
+    names = [var] * len(sets) if several and isinstance(var, str) else ([var] if isinstance(var, str) else list(var))
+    if several and len(names) != len(sets):
+        raise ValueError("`var` needs one name for each of the %d data sets, or one name for all" % len(sets))
     orients = [orient] if isinstance(orient, str) else list(orient)
     for o in orients:
         if o not in _ORIENTS:
             raise ValueError("`orient` must be 'x', 'y' or 'z' (or a list of them), not %r" % (o,))
     # each line is a variable of a data set: its table and the columns of its coordinates
     series = []
-    for i, d in enumerate([data] * len(names)):
+    for i, d in enumerate(sets if several else [sets[0]] * len(names)):
         cols = {'x': x, 'y': y, 'z': z}
         if isinstance(d, DataFile):
             cols = {o: (getattr(d, o) if cols[o] is None else cols[o]) for o in _ORIENTS}
@@ -162,7 +173,7 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
     variables = [name for _, _, name in series]
     keys = list(range(len(series)))  # the variable name is the same for lines of different data sets
     if labels is None:
-        labels = variables
+        labels = ['Data %d' % (i + 1) for i in keys] if several and len(set(variables)) < len(variables) else variables
     if colors is None:
         colors = ['C%d' % i for i in keys]
     if len(labels) != len(series) or len(colors) != len(series):
