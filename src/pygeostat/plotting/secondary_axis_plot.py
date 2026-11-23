@@ -9,10 +9,24 @@
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from .utils import format_plot, setup_plot
 from .export_image import export_image
 from .set_style import set_plot_style
 from ..pygeostat_parameters import Parameters
+
+
+def _align_zeros(ax, twin):
+    """Extend the bottom of the two y-axes so that their zeros are at the same height. Only when the
+    right axis reaches zero and above"""
+    (lo_l, hi_l), (lo_r, hi_r) = ax.get_ylim(), twin.get_ylim()
+    if hi_r <= 0 or hi_l <= 0 or lo_r > 0:  # values that do not reach zero keep their own range
+        return
+    f = max(-lo_l / (hi_l - lo_l), -lo_r / (hi_r - lo_r), 0.0)
+    if f >= 1:
+        return
+    ax.set_ylim(-f * hi_l / (1 - f), hi_l)
+    twin.set_ylim(-f * hi_r / (1 - f), hi_r)
 
 
 def _lines(values, n, side):
@@ -49,8 +63,8 @@ def _each(value, n, name):
 
 
 def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=None, ls='-', ls2='--', lw=None,
-                    alpha=None, xlabel=None, ylabel=None, ylabel2=None,
-                    title=None, xlim=None, ylim=None, ylim2=None, logx=False,
+                    alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
+                    title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True, axis_colors=None,
                     legend=None, figsize=None, ax=None, grid=None, axis_xy=None):
     """The drawing of :func:`secondary_axis_plot`, without the plot style and the export, so that a plot built
     on it (such as grade_tonnage_plot) can add to the figure before it is saved. Returns the left axis, with the
@@ -72,13 +86,27 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
         raise ValueError("`colors` and `colors2` need one color for each line of `y` and of `y2`")
     most = max(len(left), len(right))
     lws, alphas = _each(lw, most, 'lw'), _each(alpha, most, 'alpha')
+    if isinstance(axis_colors, str) and axis_colors == 'line':
+        if len(left) != 1 or len(right) != 1:
+            raise ValueError("axis_colors='line' is for one line on each axis, give a pair of colors for %d and %d "
+                             "lines" % (len(left), len(right)))
+        axis_colors = (colors[0], colors2[0])
+    elif axis_colors is not None and len(axis_colors) != 2:
+        raise ValueError("axis_colors must be 'line' or a pair (left, right), not %r" % (axis_colors,))
     for name, lim in (('ylim', ylim), ('ylim2', ylim2)):
         if lim is not None and (len(lim) != 2 or not lim[0] < lim[1]):
             raise ValueError("%s must be (lower, upper), with lower below upper, not %r" % (name, lim))
+    for name, band in (('fill', fill), ('fill2', fill2)):
+        if band is not None and (len(band) != 2 or any(len(b) != len(x) for b in band)):
+            raise ValueError("%s must be (lower, upper), each with one value for each of the %d values of `x`"
+                             % (name, len(x)))
     figsize = Parameters['plotting.secondary_axis_plot.figsize'] if figsize is None else figsize
     # Made last, so that an error leaves no figure open
     fig, ax, _ = setup_plot(ax, figsize=figsize, aspect=False)
     twin = ax.twinx()
+    for axis, band in ((ax, fill), (twin, fill2)):
+        if band is not None:
+            axis.fill_between(x, band[0], band[1], color='0.5', alpha=0.35, lw=0)
     handles = []
     for axis, arrays, side_colors, style, side_labels in ((ax, left, colors, ls, labels),
                                                           (twin, right, colors2, ls2, labels2)):
@@ -87,6 +115,8 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
             axis.plot(x, values, color=color, ls=style, **line_style)
             handles.append((Line2D([], [], color=color, ls=style, **line_style), label))
     format_plot(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=grid, axis_xy=axis_xy, xlim=xlim, logx=logx)
+    if align_zeros:
+        _align_zeros(ax, twin)
     if ylim is not None:
         ax.set_ylim(ylim)
     if ylim2 is not None:
@@ -95,8 +125,15 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
     if ylabel2 is not None:
         twin.set_ylabel(ylabel2, fontsize=ax.yaxis.label.get_size())
     twin.tick_params(axis='y', labelsize=ax.yaxis.get_ticklabels()[0].get_size())
+    for axis, side, color in zip((ax, twin), ('left', 'right'), axis_colors or (None, None)):
+        if color is not None:
+            axis.yaxis.label.set_color(color)
+            axis.tick_params(axis='y', colors=color)
+            axis.spines[side].set_color(color)
     if len(handles) > 1 if legend is None else legend:
         entries = list(handles)
+        if fill_label is not None and (fill is not None or fill2 is not None):
+            entries.append((Patch(color='0.5', alpha=0.35, lw=0), fill_label))
         ax.legend([h for h, _ in entries], [l for _, l in entries], loc='upper center',
                   bbox_to_anchor=(0.5, -0.16), ncol=min(3, len(entries)), frameon=False,
                   fontsize=ax.yaxis.get_ticklabels()[0].get_size())
@@ -106,9 +143,9 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
 
 @set_plot_style
 def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors2=None, ls='-', ls2='--', lw=None,
-                        alpha=None, xlabel=None, ylabel=None, ylabel2=None,
-                        title=None, xlim=None, ylim=None, ylim2=None, logx=False,
-                        legend=None, figsize=None, ax=None, grid=None, axis_xy=None,
+                        alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
+                        title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True,
+                        axis_colors=None, legend=None, figsize=None, ax=None, grid=None, axis_xy=None,
                         plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot lines against one x axis, some on a left y axis and some on a right y axis with its own scale, for
@@ -135,11 +172,20 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
         lw (float or list): line width, or one for each line (the same list is used for both axes, so it needs
             as many entries as the longer of ``y`` and ``y2``). Default: matplotlib's
         alpha (float or list): opacity of the lines, from 0 to 1, in the same way as ``lw``
+        fill, fill2 (tuple): ``(lower, upper)``, each one value per ``x``, a grey band drawn behind the lines of
+            the left or of the right axis, for example the range of several realizations
+        fill_label (str): legend name of the bands
         xlabel, ylabel, ylabel2 (str): labels of the x axis, the left axis and the right axis
         title (str): title of the plot
         xlim (tuple): ``(lower, upper)`` limits of the x axis. The data's if None
-        ylim, ylim2 (tuple): ``(lower, upper)`` limits of the left and of the right axis
+        ylim, ylim2 (tuple): ``(lower, upper)`` limits of the left and of the right axis. They replace the range
+            that makes the zeros of the two axes line up, so with both the zeros may not match
         logx (bool): log scale for the x axis
+        align_zeros (bool): extend the bottom of the two vertical axes so that their zeros are at the same
+            height, when the right axis has values at and above zero
+        axis_colors: colour of the two vertical axes (their label, tick marks, tick labels and line), to tell which
+            lines they belong to. A pair ``(left, right)``, or ``'line'`` for the colours of the lines when there is
+            one line on each axis. By default they keep the colour of the style
         legend (bool): write a legend below the plot. Default: True if there is more than one line
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.secondary_axis_plot.figsize']``
@@ -158,7 +204,7 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
 
     **Examples:**
 
-        Two properties of the same samples:
+        Two properties of the same samples, each axis coloured like its line:
 
         .. plot::
 
@@ -167,14 +213,14 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
             depth = np.linspace(0, 100, 50)
             gs.secondary_axis_plot(depth, np.exp(-depth / 40), 2 + 0.05 * depth, labels=['Fraction'],
                                    labels2=['Grade'], xlabel='Depth (m)', ylabel='Fraction',
-                                   ylabel2='Grade (%)')
+                                   ylabel2='Grade (%)', axis_colors='line')
 
         |
     """
     ax = _secondary_axis(x, y, y2, labels=labels, labels2=labels2, colors=colors, colors2=colors2, ls=ls, ls2=ls2,
-                         lw=lw, alpha=alpha, xlabel=xlabel,
+                         lw=lw, alpha=alpha, fill=fill, fill2=fill2, fill_label=fill_label, xlabel=xlabel,
                          ylabel=ylabel, ylabel2=ylabel2, title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
-                         legend=legend, figsize=figsize, ax=ax,
+                         align_zeros=align_zeros, axis_colors=axis_colors, legend=legend, figsize=figsize, ax=ax,
                          grid=grid, axis_xy=axis_xy)
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)

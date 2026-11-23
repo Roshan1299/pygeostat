@@ -1177,13 +1177,38 @@ def test_secondary_axis_plot_styles_limits_and_axis_colours():
     plt.close('all')
     x = np.arange(5.)
     ax = gs.secondary_axis_plot(x, x, x + 5, colors=['r'], colors2=['b'], ls='-.', ls2=':', lw=[3, 4], alpha=0.5,
-                                ylim=(-1, 9), ylim2=(0, 20), xlim=(0, 3))
+                                ylim=(-1, 9), ylim2=(0, 20), xlim=(0, 3), axis_colors='line')
     twin = _secondary_twin(ax)
     left, right = ax.get_lines()[0], twin.get_lines()[0]
     assert (left.get_color(), right.get_color()) == ('r', 'b')
     assert (left.get_linestyle(), right.get_linestyle()) == ('-.', ':')
     assert (left.get_linewidth(), right.get_linewidth(), left.get_alpha()) == (3, 3, 0.5)
     assert ax.get_ylim() == (-1, 9) and twin.get_ylim() == (0, 20) and ax.get_xlim() == (0, 3)
+    assert ax.yaxis.label.get_color() == 'r' and twin.yaxis.label.get_color() == 'b'
+    assert tuple(ax.spines['left'].get_edgecolor()) == (1.0, 0.0, 0.0, 1.0) and tuple(twin.spines['right'].get_edgecolor()) == (0.0, 0.0, 1.0, 1.0)
+    plt.close('all')
+
+
+def test_secondary_axis_plot_zeros_line_up_unless_told_not_to():
+    plt.close('all')
+    x = np.arange(5.)
+    ax = gs.secondary_axis_plot(x, x - 2, 10 * x)
+    (lo_l, hi_l), (lo_r, hi_r) = ax.get_ylim(), _secondary_twin(ax).get_ylim()
+    np.testing.assert_allclose(-lo_l / (hi_l - lo_l), -lo_r / (hi_r - lo_r))  # zero at the same height
+    plt.close('all')
+    ax = gs.secondary_axis_plot(x, x - 2, 10 * x, align_zeros=False)
+    (lo_l, hi_l), (lo_r, hi_r) = ax.get_ylim(), _secondary_twin(ax).get_ylim()
+    assert not np.isclose(-lo_l / (hi_l - lo_l), -lo_r / (hi_r - lo_r))
+    plt.close('all')
+
+
+def test_secondary_axis_plot_bands_and_axes_options():
+    plt.close('all')
+    x = np.arange(4.)
+    ax = gs.secondary_axis_plot(x, x, x, fill=(x - 1, x + 1), fill_label='Range',
+                                ylabel='L', ylabel2='R', logx=False)
+    assert len(ax.collections) == 1 and len(_secondary_twin(ax).collections) == 0
+    assert [t.get_text() for t in ax.get_legend().get_texts()][-1] == 'Range'
     plt.close('all')
 
 
@@ -1193,8 +1218,10 @@ def test_secondary_axis_plot_errors_leave_no_figure():
     for kwargs, message in (({'y': x[:3]}, 'one value for each of the 4'), ({'y2': []}, 'no line|`y2`'),
                             ({'labels': ['a', 'b']}, 'one entry for each line'),
                             ({'colors': ['r', 'g']}, 'one color for each line'),
-                            ({'ylim': (2, 1)}, 'ylim must be'),
-                            ({'ylim2': (1, 2, 3)}, 'ylim2 must be'), ({'lw': [1, 2], 'y': [x, x, x]}, 'one entry')):
+                            ({'axis_colors': 'line', 'y': [x, x]}, "axis_colors='line' is for one line"),
+                            ({'axis_colors': ('r',)}, 'pair'), ({'ylim': (2, 1)}, 'ylim must be'),
+                            ({'ylim2': (1, 2, 3)}, 'ylim2 must be'), ({'lw': [1, 2], 'y': [x, x, x]}, 'one entry'),
+                            ({'fill': (x, x[:2])}, 'fill must be')):
         args = dict(x=x, y=x, y2=x + 1)
         args.update(kwargs)
         with pytest.raises(ValueError, match=message):
