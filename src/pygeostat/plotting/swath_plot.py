@@ -10,7 +10,7 @@ number of samples in each slice as bars"""
 import numpy as np
 import pandas as pd
 from matplotlib.ticker import FormatStrFormatter, FuncFormatter, MaxNLocator
-from .utils import format_plot, setup_plot
+from .utils import format_plot, setup_plot, _format_axes, _format_fontsize, _format_ticks
 from .export_image import export_image
 from .set_style import set_plot_style
 from ..pygeostat_parameters import Parameters
@@ -50,7 +50,8 @@ def _label_lines(ax, means, variables, labels, colors):
 @set_plot_style
 def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=None, bins=None,
                colors=None, labels=None, bars=True, bar_alpha=None, lw=None, xlabel=None, ylabel=None, title=None, figsize=None,
-               legend=True, grid=None, axis_xy=None, count_label=None, plot_style=None, custom_style=None,
+               legend=True, grid=None, axis_xy=None, count_style='bars', count_label=None, ms=5, ticks=None, fontsize=None,
+               xlim=None, ylim=None, background=None, plot_style=None, custom_style=None,
                output_file=None, ax=None, **kwargs):
     """
     Plot a swath plot: the data are cut into slices along ``orient`` and the mean of each variable in
@@ -98,7 +99,19 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
         grid (bool): plots the major grid lines if True. Based on Parameters['plotting.grid'] if None.
         axis_xy (bool): GSLIB-style axis visibility if True. Based on Parameters['plotting.axis_xy']
             if None.
+        count_style (str): ``'bars'`` draws the counts as bars, ``'points'`` as one point per slice
+            (``bar_alpha`` is the opacity of both). Only used if ``bars`` is True
         count_label (str): label of the right axis (default: "Data Count (Bars)" or "Data Count (Points)")
+        ms (float): size of the points of ``count_style='points'``
+        ticks (bool, float or dict): tick marks on all axes. ``True`` draws them, ``False`` removes them,
+            a number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
+            ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number), or a
+            dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's sizes if None
+        xlim (tuple): ``(lower, upper)`` limits of the x-axis, the same on every direction. The data's if None
+        ylim (tuple): ``(lower, upper)`` limits of the left axis (the lines). The data's if None
+        background (color): colour of the plotting area, for example ``'lightgrey'`` or ``'white'``. The
+            style's if None
         plot_style (str): Use a predefined set of matplotlib plotting parameters
         custom_style (dict): Alter some of the predefined parameters in the ``plot_style`` selected
         output_file (str): Output figure file name and location
@@ -182,6 +195,8 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
         raise ValueError("`ax` can only be used with a single `orient`")
     if width is not None and not width > 0:
         raise ValueError("`width` must be positive")
+    if count_style not in ('bars', 'points'):
+        raise ValueError("`count_style` must be 'bars' or 'points', not %r" % (count_style,))
     # the same names the spatial plots use for the axes
     axisnames = {o: Parameters['plotting.%sname' % o] for o in _ORIENTS}
     unit = Parameters['plotting.unit']
@@ -239,8 +254,12 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
             barwidth = 0.08 * width
             for i, color in enumerate(colors):
                 offset = (i - (len(variables) - 1) / 2) * barwidth
-                b.bar(counts.index + offset, counts[i], width=barwidth, color=color,
-                      alpha=bar_alpha, linewidth=0)
+                if count_style == 'bars':
+                    b.bar(counts.index + offset, counts[i], width=barwidth, color=color,
+                          alpha=bar_alpha, linewidth=0)
+                else:
+                    b.plot(counts.index + offset, counts[i], 'o', color=color, alpha=bar_alpha,
+                           ms=ms, markeredgewidth=0)
             b.set_ylim(0, 1.05 * counts.values.max())
             b.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1, 2, 5, 10], integer=True))  # counts: whole, evenly spaced ticks
             b.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: '{:,.0f}'.format(v)))
@@ -248,9 +267,16 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
             a.set_zorder(b.get_zorder() + 1)
             a.patch.set_visible(False)
             # The right axis gets the sizes of the left one, so the two sides match
-            b.set_ylabel(count_label if count_label is not None else 'Data Count (Bars)',
+            b.set_ylabel(count_label if count_label is not None else
+                         'Data Count (Bars)' if count_style == 'bars' else 'Data Count (Points)',
                          fontsize=a.yaxis.label.get_size())
             b.tick_params(axis='y', labelsize=a.yaxis.get_ticklabels()[0].get_size())
+            if background is not None:  # the lines' axis is see-through, so the colour goes on this one
+                b.set_facecolor(background)
+        _format_axes(a, grid=grid, ticks=ticks, fontsize=fontsize, xlim=xlim, ylim=ylim, background=background)
+        if bars:
+            _format_ticks(b, ticks)
+            _format_fontsize(b, fontsize)
     # The same tick format on every panel, so stacked directions read alike
     for a in axes:
         a.xaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1, 2, 2.5, 5, 10], prune='upper'))

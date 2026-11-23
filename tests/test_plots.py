@@ -1381,6 +1381,45 @@ def test_swath_plot_count_ticks_are_whole_numbers_for_a_small_largest_count():
     plt.close('all')
 
 
+def _swath_data():
+    return pd.DataFrame({'x': [0., 1., 2., 3.], 'y': [0., 0., 1., 1.], 'z': [0.] * 4,
+                         'a': [1., 3., 5., np.nan], 'b': [2., 2., 2., 2.]})
+
+
+def test_swath_plot_counts_as_points():
+    """count_style='points' draws one point per slice and variable, at the same counts as the bars."""
+    kwargs = dict(orient='x', x='x', y='y', z='z', nbins=2)
+    bars = _swath_twin(gs.swath_plot(_swath_data(), ['a', 'b'], **kwargs))
+    bar_heights = sorted(p.get_height() for p in bars.patches)
+    plt.close('all')
+    ax = gs.swath_plot(_swath_data(), ['a', 'b'], count_style='points', ms=9, **kwargs)
+    twin = _swath_twin(ax)
+    assert len(twin.patches) == 0 and len(twin.get_lines()) == 2
+    assert sorted(np.concatenate([line.get_ydata() for line in twin.get_lines()])) == bar_heights
+    assert all(line.get_markersize() == 9 and line.get_linestyle() == 'None' for line in twin.get_lines())
+    assert twin.get_ylabel() == 'Data Count (Points)'
+    with pytest.raises(ValueError, match="count_style"):
+        gs.swath_plot(_swath_data(), 'a', x='x', y='y', z='z', count_style='dots')
+    plt.close('all')
+
+
+def test_swath_plot_axes_options():
+    """Ticks, font size, limits and background reach both the line axis and the count axis."""
+    ax = gs.swath_plot(_swath_data(), ['a', 'b'], orient='x', x='x', y='y', z='z', nbins=2,
+                       ticks=6, fontsize={'label': 17, 'tick': 8}, xlim=(-1, 4), ylim=(0, 9),
+                       background='lightgrey')
+    twin = _swath_twin(ax)
+    ax.figure.canvas.draw()
+    assert ax.yaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert twin.yaxis.get_major_ticks()[0].tick2line.get_markersize() == 6  # the count axis is on the right
+    for a in (ax, twin):
+        assert a.yaxis.label.get_fontsize() == 17
+        assert a.get_yticklabels()[0].get_fontsize() == 8
+    assert ax.get_xlim() == (-1, 4) and ax.get_ylim() == (0, 9)
+    assert twin.patch.get_visible() and twin.get_facecolor()[:3] == (0.8274509803921568,) * 3
+    plt.close('all')
+
+
 def _two_swath_sets():
     first = pd.DataFrame({'x': [0., 1., 2., 3.], 'y': 0., 'z': 0., 'v': [1., 3., 5., 7.]})
     second = pd.DataFrame({'x': [2., 3., 4., 5., 6.], 'y': 0., 'z': 0., 'v': [10., 10., 20., 20., 30.]})
