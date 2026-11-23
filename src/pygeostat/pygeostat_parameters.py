@@ -287,6 +287,7 @@ default_parameters = {
 	'plotting.histogram_plot.facecolor': ['.9', _validate_color],
 	'plotting.histogram_plot.edgecolor': ['k', _validate_color],
 	'plotting.histogram_plot.edgeweight': [None, _validate_float_or_None],
+	'plotting.secondary_axis_plot.figsize': [(6, 5), _validate_list],
 	'plotting.histogram_plot.cdfcolor': ['.5', _validate_color],
 	'plotting.histogram_plot.histbins': [15, _validate_int_or_None],
 	'plotting.histogram_plot.stat_blk': ['all', _validate_string],
@@ -406,6 +407,7 @@ default_parameter_descriptions = {
 	'plotting.histogram_plot.facecolor': 'Color of the histogram faces for the histogram_plot function.',
 	'plotting.histogram_plot.edgecolor': 'Color of the histogram edges for the histogram_plot function.',
 	'plotting.histogram_plot.edgeweight': '`lw` of the histogram edges for the histogram_plot function.',
+	'plotting.secondary_axis_plot.figsize': 'Size (width, height) of the figure of secondary_axis_plot, a figure with fonts as large as the other plots.',
 	'plotting.histogram_plot.cdfcolor': 'Color of the CDF for the histogram_plot function.',
 	'plotting.histogram_plot.histbins': 'Number of bins for a histogram (not CDF) calculation.',
 	'plotting.histogram_plot.stat_blk': ('Default stat_blk setting, which is either a string code, such '

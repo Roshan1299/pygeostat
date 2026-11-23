@@ -3,6 +3,7 @@ Pygeostat plotting modules
 '''
 
 # Load some plotting modules
+from .secondary_axis_plot import secondary_axis_plot
 from .histogram_plot import histogram_plot
 from .histogram_plot_simulation import histogram_plot_simulation
 from .slice_plot import slice_plot

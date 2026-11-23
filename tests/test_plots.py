@@ -1134,3 +1134,69 @@ def test_variogram_plot_simulation_line_style_sill_and_realization_label():
     assert sill.get_linestyle() == '-'  # the sill line stays solid
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Simulated', 'Reference']
     plt.close('all')
+
+
+def _secondary_twin(ax):
+    return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
+
+
+def test_secondary_axis_plot_lines_on_each_axis():
+    """The lines of y are on the left axis, the lines of y2 on the right one, which is ax.twin."""
+    plt.close('all')
+    x = np.arange(5.)
+    ax = gs.secondary_axis_plot(x, [x, x ** 2], 10 * x + 1, labels=['a', 'b'], labels2=['c'], xlabel='X',
+                                ylabel='Left', ylabel2='Right')
+    twin = _secondary_twin(ax)
+    assert ax.twin is twin
+    assert len(ax.get_lines()) == 2 and len(twin.get_lines()) == 1
+    np.testing.assert_allclose(ax.get_lines()[1].get_ydata(), x ** 2)
+    np.testing.assert_allclose(twin.get_lines()[0].get_ydata(), 10 * x + 1)
+    assert (ax.get_xlabel(), ax.get_ylabel(), twin.get_ylabel()) == ('X', 'Left', 'Right')
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['a', 'b', 'c']
+    # the right axis is dashed and takes the next colours of the cycle by default
+    assert twin.get_lines()[0].get_linestyle() == '--' and ax.get_lines()[0].get_linestyle() == '-'
+    assert twin.get_lines()[0].get_color() == 'C2'
+    plt.close('all')
+
+
+def test_secondary_axis_plot_table_input_and_default_labels():
+    """A table gives a line for each column, named by the column; arrays are numbered, left lines first."""
+    plt.close('all')
+    x = np.arange(4.)
+    ax = gs.secondary_axis_plot(x, pd.DataFrame({'p': x, 'q': 2 * x}), np.column_stack([x, x]))
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['p', 'q', 'Line 3', 'Line 4']
+    plt.close('all')
+    ax = gs.secondary_axis_plot(x, pd.Series(x, name='only'), x + 1)
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['only', 'Line 2']
+    plt.close('all')
+    assert gs.secondary_axis_plot(x, x, x + 1, legend=False).get_legend() is None
+    plt.close('all')
+
+
+def test_secondary_axis_plot_styles_limits_and_axis_colours():
+    plt.close('all')
+    x = np.arange(5.)
+    ax = gs.secondary_axis_plot(x, x, x + 5, colors=['r'], colors2=['b'], ls='-.', ls2=':', lw=[3, 4], alpha=0.5,
+                                ylim=(-1, 9), ylim2=(0, 20), xlim=(0, 3))
+    twin = _secondary_twin(ax)
+    left, right = ax.get_lines()[0], twin.get_lines()[0]
+    assert (left.get_color(), right.get_color()) == ('r', 'b')
+    assert (left.get_linestyle(), right.get_linestyle()) == ('-.', ':')
+    assert (left.get_linewidth(), right.get_linewidth(), left.get_alpha()) == (3, 3, 0.5)
+    assert ax.get_ylim() == (-1, 9) and twin.get_ylim() == (0, 20) and ax.get_xlim() == (0, 3)
+    plt.close('all')
+
+
+def test_secondary_axis_plot_errors_leave_no_figure():
+    plt.close('all')
+    x = np.arange(4.)
+    for kwargs, message in (({'y': x[:3]}, 'one value for each of the 4'), ({'y2': []}, 'no line|`y2`'),
+                            ({'labels': ['a', 'b']}, 'one entry for each line'),
+                            ({'colors': ['r', 'g']}, 'one color for each line'),
+                            ({'ylim': (2, 1)}, 'ylim must be'),
+                            ({'ylim2': (1, 2, 3)}, 'ylim2 must be'), ({'lw': [1, 2], 'y': [x, x, x]}, 'one entry')):
+        args = dict(x=x, y=x, y2=x + 1)
+        args.update(kwargs)
+        with pytest.raises(ValueError, match=message):
+            gs.secondary_axis_plot(**args)
+    assert len(plt.get_fignums()) == 0
