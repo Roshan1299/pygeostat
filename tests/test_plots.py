@@ -1135,6 +1135,182 @@ def test_variogram_plot_simulation_line_style_sill_and_realization_label():
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Simulated', 'Reference']
     plt.close('all')
 
+def _gt_twin(ax):
+    """The axis of the grades, which shares the x axis with the one of the tonnages"""
+    return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
+
+
+def test_grade_tonnage_plot_tonnage_and_grade_by_hand():
+    # values 1, 2, 3, 4 with weights 1, 1, 2, 4: above 3 are weights 2 and 4 with grades 3 and 4
+    data = pd.DataFrame({'g': [1., 2., 3., 4.], 'w': [1., 1., 2., 4.]})
+    ax = gs.grade_tonnage_plot(data, 'g', weights='w', cutoffs=[0., 2., 3., 5.])
+    np.testing.assert_allclose(ax.get_lines()[0].get_ydata(), [1., 7 / 8, 6 / 8, 0.])
+    np.testing.assert_allclose(_gt_twin(ax).get_lines()[0].get_ydata(),
+                               [(1 + 2 + 6 + 16) / 8, (2 + 6 + 16) / 7, (6 + 16) / 6, np.nan])
+    ax = gs.grade_tonnage_plot(data, 'g', cutoffs=[2.], block_tonnes=10)
+    np.testing.assert_allclose(ax.get_lines()[0].get_ydata(), [30.])
+    assert ax.get_ylabel() == 'Tonnes Above Cutoff'
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_models_in_the_order_given():
+    data = gs.ExampleData('3d_estimate')
+    ax = gs.grade_tonnage_plot(data, ['True', 'Estimate'], labels=['Data', 'Estimate'])
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == [
+        'Data - Fraction', 'Estimate - Fraction', 'Data - Grade', 'Estimate - Grade']
+    assert len(ax.get_lines()) == 2 and len(_gt_twin(ax).get_lines()) == 2
+    assert ax.get_ylabel() == 'Fraction Above Cutoff' and _gt_twin(ax).get_ylabel() == 'Mean Grade Above Cutoff'
+    # a list of tables gives the same curves as the columns of one table
+    ax2 = gs.grade_tonnage_plot([data.data, data.data], ['True', 'Estimate'])
+    for a, b in zip(ax.get_lines(), ax2.get_lines()):
+        np.testing.assert_allclose(a.get_ydata(), b.get_ydata())
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_default_cutoffs_and_log_axis():
+    data = pd.DataFrame({'a': [0.5, 1., 2., 8.], 'b': [0.25, 1., 4., 16.]})
+    ax = gs.grade_tonnage_plot(data, ['a', 'b'], ncut=5)
+    np.testing.assert_allclose(ax.get_lines()[0].get_xdata(), np.linspace(0.25, 16., 5))
+    ax = gs.grade_tonnage_plot(data, ['a', 'b'], ncut=3, logx=True)
+    assert ax.get_xscale() == 'log'
+    np.testing.assert_allclose(ax.get_lines()[0].get_xdata(), [0.25, 2., 16.])
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_draws_on_the_axis_it_is_given_and_follows_the_parameters():
+    data = gs.ExampleData('3d_estimate')
+    fig, axes = plt.subplots(1, 2)
+    ax = gs.grade_tonnage_plot(data, 'True', ax=axes[1], title='T')
+    assert ax is axes[1] and ax.figure is fig and ax.get_title() == 'T'
+    plt.close('all')
+    ax = gs.grade_tonnage_plot(data, 'True')
+    assert tuple(ax.figure.get_size_inches()) == tuple(gs.Parameters['plotting.grade_tonnage_plot.figsize'])
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_each_column_of_a_table_is_a_model():
+    values = np.arange(12, dtype=float).reshape(4, 3)
+    ax = gs.grade_tonnage_plot(values, cutoffs=[0., 5.])
+    assert len(ax.get_lines()) == 3
+    ax = gs.grade_tonnage_plot(pd.DataFrame(values, columns=list('abc')))
+    assert [t.get_text() for t in ax.get_legend().get_texts()][:3] == ['a - Fraction', 'b - Fraction', 'c - Fraction']
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_without_a_labelled_model_has_no_legend_and_accepts_a_0d_array():
+    data = pd.DataFrame({'a': [1., 2., 3., 4.], 'b': [2., 3., 4., 5.]})
+    assert gs.grade_tonnage_plot(data, ['a', 'b'], labels=[None, None]).get_legend() is None
+    assert gs.grade_tonnage_plot(data, 'a', labels=[None]).get_legend() is None
+    ax = gs.grade_tonnage_plot(data, ['a', 'b'], lw=np.array(2.), alpha=np.float64(0.5))
+    assert ax.get_lines()[1].get_linewidth() == 2 and ax.get_lines()[1].get_alpha() == 0.5
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_errors_leave_no_figure_open():
+    data = pd.DataFrame({'a': [1., 2.], 'b': [3., 4.]})
+    plt.close('all')
+    for call in (lambda: gs.grade_tonnage_plot(data, ['a', 'c']),
+                 lambda: gs.grade_tonnage_plot(data, ['a', 'b'], labels=['x']),
+                 lambda: gs.grade_tonnage_plot(data, ['a', 'b'], colors=['r']),
+                 lambda: gs.grade_tonnage_plot(data, ['a', 'b'], weights=[1., 1., 1.]),
+                 lambda: gs.grade_tonnage_plot(data, ['a', 'b'], cutoffs=[0., 1.], logx=True),
+                 lambda: gs.grade_tonnage_plot(pd.DataFrame({'a': [np.nan] * 3}), 'a', cutoffs=[0.]),
+                 lambda: gs.grade_tonnage_plot(data, 'a', weights=[0., 0.], cutoffs=[0.]),
+                 lambda: gs.grade_tonnage_plot(data, ['a', 'b'], alpha=[0.5]),
+                 lambda: gs.grade_tonnage_plot(data, 'a', ncut=1)):
+        with pytest.raises(ValueError):
+            call()
+    assert plt.get_fignums() == []
+
+
+def _gt_by_brute_force(values, weights, cutoffs):
+    values = np.asarray(values, dtype=float)
+    weights = np.ones(len(values)) if weights is None else np.asarray(weights, dtype=float)
+    ok = ~np.isnan(values) & ~np.isnan(weights)
+    values, weights = values[ok], weights[ok]
+    above = [values >= c for c in cutoffs]
+    tonnage = [weights[m].sum() / weights.sum() for m in above]
+    grade = [(weights[m] * values[m]).sum() / weights[m].sum() if weights[m].sum() > 0 else np.nan for m in above]
+    return np.array(tonnage), np.array(grade)
+
+
+@pytest.mark.parametrize('name, var', [('oilsands', ['Bitumen', 'Fines']), ('3d_estimate', ['True', 'Estimate']),
+                                       ('accuracy_plot', None)])
+def test_grade_tonnage_plot_matches_a_brute_force_calculation_on_the_example_data(name, var):
+    data = gs.ExampleData(name)
+    table = data.data if hasattr(data, 'data') and not isinstance(data, pd.DataFrame) else data
+    var = list(table.columns) if var is None else var
+    ax = gs.grade_tonnage_plot(data, var)
+    cutoffs = ax.get_lines()[0].get_xdata()
+    assert cutoffs[0] == np.nanmin(table[var].values) and cutoffs[-1] == np.nanmax(table[var].values)
+    for i, column in enumerate(var):
+        tonnage, grade = _gt_by_brute_force(table[column].values, None, cutoffs)
+        np.testing.assert_allclose(ax.get_lines()[i].get_ydata(), tonnage, atol=1e-12)
+        np.testing.assert_allclose(_gt_twin(ax).get_lines()[i].get_ydata(), grade, atol=1e-12)
+        assert (np.diff(tonnage) <= 0).all() and (np.diff(grade[~np.isnan(grade)]) >= -1e-12).all()
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_with_weights_and_missing_values_and_the_same_result_twice():
+    rng = np.random.default_rng(3)
+    data = pd.DataFrame({'a': rng.lognormal(size=300), 'b': rng.lognormal(size=300)})
+    data.loc[:60, 'b'] = np.nan
+    weights = rng.uniform(0.1, 2, 300)
+    ax = gs.grade_tonnage_plot(data, ['a', 'b'], weights=weights, ncut=12)
+    again = gs.grade_tonnage_plot(data, ['a', 'b'], weights=weights, ncut=12)
+    cutoffs = ax.get_lines()[0].get_xdata()
+    for i, column in enumerate('ab'):
+        tonnage, grade = _gt_by_brute_force(data[column].values, weights, cutoffs)
+        np.testing.assert_allclose(ax.get_lines()[i].get_ydata(), tonnage, atol=1e-12)
+        np.testing.assert_allclose(_gt_twin(ax).get_lines()[i].get_ydata(), grade, atol=1e-12)
+        np.testing.assert_array_equal(ax.get_lines()[i].get_ydata(), again.get_lines()[i].get_ydata())
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_many_realizations_keep_a_short_legend():
+    data = gs.ExampleData('accuracy_plot')
+    reals = list(data.columns[1:])
+    ax = gs.grade_tonnage_plot(data, [data.columns[0]] + reals, colors=['k'] + ['0.6'] * len(reals),
+                               labels=['Data', 'Realizations'] + [None] * (len(reals) - 1), alpha=[1.] + [0.4] * len(reals), lw=[2.] + [1.] * len(reals))
+    assert len(ax.get_lines()) == 1 + len(reals) and ax.get_lines()[1].get_alpha() == 0.4
+    assert ax.get_lines()[0].get_alpha() == 1 and ax.get_lines()[0].get_linewidth() == 2
+    assert ax.get_lines()[1].get_linewidth() == 1
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == [
+        'Data - Fraction', 'Realizations - Fraction', 'Data - Grade', 'Realizations - Grade']
+    assert gs.grade_tonnage_plot(data, list(data.columns)).get_legend() is None  # 101 models, no labels
+    assert gs.grade_tonnage_plot(data, list(data.columns), legend=True).get_legend() is not None
+    plt.close('all')
+
+
+def _gt_curves(ax):
+    """The lines of the tonnage (left) and grade (right) axes of grade_tonnage_plot"""
+    twin = [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
+    return ax.get_lines(), twin.get_lines(), twin
+
+
+def test_grade_tonnage_plot_keeps_the_range_of_grades_that_do_not_reach_zero():
+    data = pd.DataFrame({'a': np.linspace(5, 10, 50), 'b': np.linspace(6, 11, 50)})
+    ax = gs.grade_tonnage_plot(data)
+    assert ax.figure.axes[-1].get_ylim()[0] > 0
+    plt.close('all')
+
+
+def test_grade_tonnage_plot_limits_of_the_two_vertical_axes():
+    """ylim sets the tonnage axis (left) and ylim2 the grade axis (right); without them the zeros still line up."""
+    data = pd.DataFrame({'g': [1., 2., 3., 4.]})
+    ax = gs.grade_tonnage_plot(data, 'g', ylim=(-0.2, 2), ylim2=(0, 10))
+    twin = _gt_twin(ax)
+    assert ax.get_ylim() == (-0.2, 2) and twin.get_ylim() == (0, 10)
+    assert ax.get_xlim() == gs.grade_tonnage_plot(data, 'g').get_xlim()  # the x axis is not touched
+    plt.close('all')
+    ax = gs.grade_tonnage_plot(data, 'g', ylim=(0, 3))
+    assert ax.get_ylim() == (0, 3) and _gt_twin(ax).get_ylim() != (0, 3)  # only the left one is set
+    plt.close('all')
+    for kwargs, message in (({'ylim': (2, 1)}, 'ylim must be'), ({'ylim2': (1, 2, 3)}, 'ylim2 must be')):
+        with pytest.raises(ValueError, match=message):
+            gs.grade_tonnage_plot(data, 'g', **kwargs)
+    assert plt.get_fignums() == []
+
 
 def _secondary_twin(ax):
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
