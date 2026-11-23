@@ -1912,3 +1912,25 @@ def test_grade_tonnage_plot_line_styles_label_average_band_and_legend_arguments(
     assert ax.get_legend().get_frame_on()
     assert [h.get_linestyle() for h in ax.get_legend().legend_handles[:2]] == [':', ':']  # the tonnage of Data and A
     plt.close('all')
+
+
+def test_swath_plot_label_bar_width_spacing_and_margin_arguments():
+    """label_kws, bar_width, hspace and label_margin replace the values that were fixed in the code; the defaults are
+    unchanged."""
+    plt.close('all')
+    kwargs = dict(x='x', y='y', z='z', nbins=2)
+    ax = gs.swath_plot(_swath_data(), ['a', 'b'], orient='x', **kwargs)
+    bars = _swath_twin(ax).patches[0].get_width()
+    assert {(t.get_fontweight(), t.get_fontsize() == ax.yaxis.get_ticklabels()[0].get_size()) for t in ax.texts} == {('bold', True)}
+    assert ax.margins()[1] == 0.16
+    assert gs.swath_plot(_swath_data(), ['a', 'b'], orient=['x', 'y'], **kwargs)[0].figure.subplotpars.hspace == 0.35
+    plt.close('all')
+    ax = gs.swath_plot(_swath_data(), ['a', 'b'], orient='x', bar_width=0.2, label_margin=0.3,
+                       label_kws=dict(fontweight='normal', fontsize=9), **kwargs)
+    assert _swath_twin(ax).patches[0].get_width() == pytest.approx(bars * 0.2 / 0.08)
+    assert {(t.get_fontweight(), t.get_fontsize()) for t in ax.texts} == {('normal', 9)}
+    assert ax.margins()[1] == 0.3
+    plt.close('all')
+    axes = gs.swath_plot(_swath_data(), ['a', 'b'], orient=['x', 'y'], hspace=0.6, **kwargs)
+    assert axes[0].figure.subplotpars.hspace == 0.6
+    plt.close('all')

@@ -27,7 +27,7 @@ def _decimals(axes, which):
     return 3
 
 
-def _label_lines(ax, means, variables, labels, colors):
+def _label_lines(ax, means, variables, labels, colors, label_kws=None):
     """Write each label next to its line, where the line is furthest from the other lines (above the line
     if it is the higher one there, below it otherwise), so the labels do not cover each other"""
     low, high = ax.get_ylim()
@@ -41,18 +41,20 @@ def _label_lines(ax, means, variables, labels, colors):
         x = gap.abs().idxmax()
         above = gap[x] > 0 or (gap[x] == 0 and i % 2 == 0)  # lines that coincide: alternate above and below
         side = (x - left) / (right - left)  # near an edge, the label grows inwards so it stays inside the plot
+        text = dict(color=color, fontsize=size, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.75))
+        text.update(label_kws or {})
         ax.annotate(label, (x, means[v][x]), xytext=(0, 7 if above else -7), textcoords='offset points',
                     ha='right' if side > 0.8 else ('left' if side < 0.2 else 'center'),
-                    va='bottom' if above else 'top', color=color, fontsize=size, fontweight='bold',
-                    bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.75), zorder=5)
+                    va='bottom' if above else 'top', zorder=5, **text)
 
 
 @set_plot_style
 def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=None, bins=None,
                colors=None, labels=None, bars=True, bar_alpha=None, lw=None, xlabel=None, ylabel=None, title=None, figsize=None,
                legend=True, grid=None, axis_xy=None, count_style='bars', count_label=None, ms=5, ticks=None, fontsize=None,
-               xlim=None, ylim=None, background=None, plot_style=None, custom_style=None,
-               output_file=None, ax=None, **kwargs):
+               xlim=None, ylim=None, background=None, hspace=0.35, bar_width=0.08, label_kws=None, label_margin=0.16,
+               plot_style=None, custom_style=None, output_file=None, ax=None, **kwargs):
     """
     Plot a swath plot: the data are cut into slices along ``orient`` and the mean of each variable in
     each slice is drawn as a line (left axis). The bars (right axis) are the number of values in each
@@ -103,6 +105,8 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
             (``bar_alpha`` is the opacity of both). Only used if ``bars`` is True
         count_label (str): label of the right axis (default: "Data Count (Bars)" or "Data Count (Points)")
         ms (float): size of the points of ``count_style='points'``
+        bar_width (float): width of the bar or the spacing of the points of each variable, as a fraction of the
+            width of a slice. Default: 0.08
         ticks (bool, float or dict): tick marks on all axes. ``True`` draws them, ``False`` removes them,
             a number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
             ``gs.Parameters['plotting.ticks']``
@@ -115,6 +119,11 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
         plot_style (str): Use a predefined set of matplotlib plotting parameters
         custom_style (dict): Alter some of the predefined parameters in the ``plot_style`` selected
         output_file (str): Output figure file name and location
+        hspace (float): space between the plots of several directions, as a fraction of their height. Default: 0.35
+        label_kws (dict): arguments for ``ax.annotate`` that replace the defaults of the names written on the lines
+            (``color``, ``fontsize``, ``fontweight`` and ``bbox``)
+        label_margin (float): room above and below the lines for their names, as a fraction of the data range.
+            Default: 0.16
         ax (ax): Matplotlib axis to plot on (only for a single ``orient``)
         **kwargs: Optional permissible keyword arguments to pass to
             :func:`gs.export_image() <pygeostat.plotting.export_image.export_image>`
@@ -235,7 +244,7 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
         fig = setup_plot(None, figsize=(figsize[0], figsize[1] * len(orients)), aspect=False)[0]
         fig.clf()
         axes = list(fig.subplots(len(orients), 1))
-        fig.subplots_adjust(hspace=0.35)
+        fig.subplots_adjust(hspace=hspace)
     for o, a in zip(orients, axes):
         means, counts, edges = swaths[o]
         width = np.diff(edges).mean()
@@ -243,7 +252,7 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
             valid = means[k].notna()
             a.plot(means.index[valid], means[k][valid], color=color, lw=lw, label=label, zorder=2)
         if legend and len(variables) > 1:
-            a.margins(y=0.16)  # room above and below the lines for their labels
+            a.margins(y=label_margin)  # room above and below the lines for their labels
         name = axisnames[o] + (' (%s)' % unit if unit else '')
         format_plot(a, xlabel=xlabel if xlabel is not None else name,
                     ylabel=ylabel if ylabel is not None
@@ -251,7 +260,7 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
                     title=title, grid=grid, axis_xy=axis_xy)
         if bars:
             b = a.twinx()
-            barwidth = 0.08 * width
+            barwidth = bar_width * width
             for i, color in enumerate(colors):
                 offset = (i - (len(variables) - 1) / 2) * barwidth
                 if count_style == 'bars':
@@ -291,7 +300,7 @@ def swath_plot(data, var, orient='x', x=None, y=None, z=None, nbins=20, width=No
         axes[0].figure.align_ylabels(axes)
     if legend and len(variables) > 1:
         for o, a in zip(orients, axes):
-            _label_lines(a, swaths[o][0], keys, labels, colors)
+            _label_lines(a, swaths[o][0], keys, labels, colors, label_kws)
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
     return axes if len(orients) > 1 else axes[0]
