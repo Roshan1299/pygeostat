@@ -118,7 +118,8 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
                        cut_range=None, average=False, band=None, realizations=None, xlabel=None,
                        ylabel=None, title=None, xlim=None, ylim=None, ylim2=None, logx=False, legend=None, figsize=None, ax=None,
                        grid=None, axis_xy=None, axis_colors=None, ticks=None, fontsize=None, background=None,
-                       plot_style=None, custom_style=None, output_file=None, **kwargs):
+                       ylabel2=None, ls='--', ls2='-', average_color='k', average_lw=2, fill_color='0.5', fill_alpha=0.35,
+                       legend_kws=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot the grade-tonnage curves of one variable for several models, to compare them on one plot.
     For each cutoff grade the dashed lines (left axis) are the tonnage of the blocks at or above the
@@ -195,6 +196,7 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         xlabel (str): x-axis label (default: "Cutoff Grade")
         ylabel (str): label of the tonnage axis (default: "Tonnes Above Cutoff", or
             "Fraction Above Cutoff" without ``block_tonnes``)
+        ylabel2 (str): label of the grade axis (default: "Mean Grade Above Cutoff")
         title (str): title of the plot
         xlim (tuple): x-axis limits
         ylim (tuple): limits of the tonnage axis (left), ``(lower, upper)``. They replace the range that makes
@@ -203,6 +205,12 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         logx (bool): log scale for the cutoff axis
         legend (bool): add a legend below the plot (default: True, except for more than 10 models
             without ``labels``)
+        legend_kws (dict): arguments for ``ax.legend`` that replace the defaults (``loc``, ``bbox_to_anchor``,
+            ``ncol``, ``frameon`` and ``fontsize``)
+        ls, ls2 (str): line style of the tonnage lines (left axis) and of the grade lines (right axis).
+            Default: dashed and solid
+        average_color (color), average_lw (float): colour and width of the average line. Default: black, 2
+        fill_color (color), fill_alpha (float): colour and opacity of the band. Default: grey, '0.5', 0.35
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.grade_tonnage_plot.figsize']``
         ax (ax): Matplotlib axis to plot on, which gets the tonnage. The grade is on a twin axis.
@@ -299,35 +307,37 @@ def grade_tonnage_plot(data, var=None, labels=None, weights=None, cutoffs=None, 
         mean_grade = np.where(np.isfinite(grades_of).all(axis=0), grades_of.mean(axis=0), np.nan)
         left.append(tons_of.mean(axis=0))
         right.append(mean_grade)
-        line_colors.append('k')
-        line_lws.append(2)
+        line_colors.append(average_color)
+        line_lws.append(average_lw)
         line_alphas.append(None)
     ax = _secondary_axis(
-        cutoffs, left, right, colors=line_colors, colors2=line_colors, ls='--', ls2='-', lw=line_lws, alpha=line_alphas,
+        cutoffs, left, right, colors=line_colors, colors2=line_colors, ls=ls, ls2=ls2, lw=line_lws, alpha=line_alphas,
         fill=_band(tons_of, band) if band is not None else None,
         fill2=_band(grades_of, band) if band is not None else None,
         xlabel=xlabel if xlabel is not None else 'Cutoff Grade',
         ylabel=ylabel if ylabel is not None else
         ('Fraction Above Cutoff' if block_tonnes is None else 'Tonnes Above Cutoff'),
-        ylabel2='Mean Grade Above Cutoff', title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
+        ylabel2=ylabel2 if ylabel2 is not None else 'Mean Grade Above Cutoff', title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
         axis_colors=axis_colors, legend=False, figsize=figsize, ax=ax, grid=grid, axis_xy=axis_xy, ticks=ticks,
-        fontsize=fontsize, background=background)
+        fontsize=fontsize, background=background, fill_color=fill_color, fill_alpha=fill_alpha)
     if block_tonnes is not None:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: '{:,.0f}'.format(v)))
     shown = [i for i, m in enumerate(models) if m[0] is not None]
     what = 'Fraction' if block_tonnes is None else 'Tonnes'
-    handles = [Line2D([], [], color=colors[i], ls=ls,
-                      **{k: v for k, v in (('lw', lws[i]), ('alpha', alphas[i])) if v is not None}) for ls in ('--', '-') for i in shown]
+    handles = [Line2D([], [], color=colors[i], ls=style,
+                      **{k: v for k, v in (('lw', lws[i]), ('alpha', alphas[i])) if v is not None}) for style in (ls, ls2) for i in shown]
     names = ['%s - %s' % (models[i][0], w) for w in (what, 'Grade') for i in shown]
     if average:
-        handles += [Line2D([], [], color='k', ls='--', lw=2), Line2D([], [], color='k', lw=2)]
+        handles += [Line2D([], [], color=average_color, ls=ls, lw=average_lw), Line2D([], [], color=average_color, ls=ls2, lw=average_lw)]
         names += ['Average - %s' % what, 'Average - Grade']
     if band is not None:
-        handles.append(Patch(color='0.5', alpha=0.35, lw=0))
+        handles.append(Patch(color=fill_color, alpha=fill_alpha, lw=0))
         names.append('P%d to P%d' % (round(band[0] * 100), round(band[1] * 100)))
     if legend and handles:
-        ax.legend(handles, names, loc='upper center', bbox_to_anchor=(0.5, -0.16),
-                  ncol=min(3, len(names)), frameon=False, fontsize=ax.yaxis.get_ticklabels()[0].get_size())
+        legend_args = dict(loc='upper center', bbox_to_anchor=(0.5, -0.16), ncol=min(3, len(names)), frameon=False,
+                           fontsize=ax.yaxis.get_ticklabels()[0].get_size())
+        legend_args.update(legend_kws or {})
+        ax.legend(handles, names, **legend_args)
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
     return ax

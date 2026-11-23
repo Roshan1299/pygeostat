@@ -1550,3 +1550,30 @@ def test_secondary_axis_plot_band_colour_and_legend_arguments():
     assert tuple(np.round(ax.get_legend().legend_handles[-1].get_facecolor(), 2)) == (1.0, 0.0, 0.0, 0.6)
     assert ax.get_legend().get_frame_on() and ax.get_legend().get_title().get_text() == 'Lines'
     plt.close('all')
+
+
+def test_grade_tonnage_plot_line_styles_label_average_band_and_legend_arguments():
+    """ls, ls2, ylabel2, average_color, average_lw, fill_color, fill_alpha and legend_kws replace the values that were
+    fixed in the code; the defaults are unchanged."""
+    plt.close('all')
+    data = pd.DataFrame({'data': [1., 2., 3.], 'a': [1., 1., 1.], 'b': [3., 3., 3.]})
+    base = dict(labels=['Data', 'A', None], realizations=[1, 2], average=True, band=(0.05, 0.95), cut_range=(1., 3.),
+                ncut=3)
+    ax = gs.grade_tonnage_plot(data, **base)
+    lines, grade_lines, twin = _gt_curves(ax)
+    assert (lines[0].get_linestyle(), grade_lines[0].get_linestyle()) == ('--', '-')
+    assert (lines[-1].get_color(), lines[-1].get_linewidth()) == ('k', 2)
+    assert twin.get_ylabel() == 'Mean Grade Above Cutoff'
+    assert tuple(np.round(ax.collections[0].get_facecolor()[0], 2)) == (0.5, 0.5, 0.5, 0.35)
+    assert not ax.get_legend().get_frame_on()
+    plt.close('all')
+    ax = gs.grade_tonnage_plot(data, ls=':', ls2='-.', average_color='r', average_lw=3, ylabel2='Grade (%)',
+                               fill_color='b', fill_alpha=0.5, legend_kws=dict(frameon=True), **base)
+    lines, grade_lines, twin = _gt_curves(ax)
+    assert (lines[0].get_linestyle(), grade_lines[0].get_linestyle()) == (':', '-.')
+    assert (lines[-1].get_color(), lines[-1].get_linewidth(), grade_lines[-1].get_linestyle()) == ('r', 3, '-.')
+    assert twin.get_ylabel() == 'Grade (%)'
+    assert tuple(np.round(ax.collections[0].get_facecolor()[0], 2)) == (0.0, 0.0, 1.0, 0.5)
+    assert ax.get_legend().get_frame_on()
+    assert [h.get_linestyle() for h in ax.get_legend().legend_handles[:2]] == [':', ':']  # the tonnage of Data and A
+    plt.close('all')
