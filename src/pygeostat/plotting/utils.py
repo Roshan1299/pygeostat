@@ -1147,6 +1147,37 @@ def _format_fontsize(ax, fontsize=None):
     return ax
 
 
+def _stat_names(stat_blk, statsets, names):
+    '''
+    Private function that turns ``stat_blk`` into the statistics to write, for plots that write them in
+    different places (as ``get_statblk`` writes them as one block).
+
+    Parameters:
+        stat_blk(str, list or bool): a preset of ``statsets`` (for example ``'all'`` or ``'minimal'``), a
+            list of statistic names and presets, or ``False``, ``None`` or ``'none'`` for no statistics.
+            ``True`` is ``'all'``
+        statsets(dict): name of each preset and the statistics it holds
+        names(list): the valid statistic names, in the order to write them
+
+    Return:
+        chosen(list): the names asked for, in the order of ``names``
+    '''
+    if stat_blk is None or stat_blk is False or (isinstance(stat_blk, str) and stat_blk == 'none'):
+        return []
+    if stat_blk is True:
+        stat_blk = 'all'
+    chosen = set()
+    for item in ([stat_blk] if isinstance(stat_blk, str) else stat_blk):
+        if item in statsets:
+            chosen.update(statsets[item])
+        elif item in names:
+            chosen.add(item)
+        else:
+            raise ValueError('{!r} is not a valid stat_blk, try one of: {}'.format(
+                item, list(statsets) + list(names) + ['none']))
+    return [name for name in names if name in chosen]
+
+
 def _format_axes(ax, grid=None, ticks=None, fontsize=None, xlim=None, ylim=None, background=None):
     '''
     Private function for the options that every pygeostat plot gives to its axis: grid, tick marks,

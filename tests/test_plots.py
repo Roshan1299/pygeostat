@@ -1135,6 +1135,22 @@ def test_variogram_plot_simulation_line_style_sill_and_realization_label():
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Simulated', 'Reference']
     plt.close('all')
 
+
+def test_stat_names_presets_lists_and_none():
+    """stat_blk is a preset, a list of names or presets, or off; the names come back in the order of the plot."""
+    from pygeostat.plotting.utils import _stat_names
+    sets = {'all': ['ndat', 'rho', 'mean'], 'minimal': ['rho']}
+    names = ['ndat', 'rho', 'mean']
+    assert _stat_names('all', sets, names) == ['ndat', 'rho', 'mean']
+    assert _stat_names(True, sets, names) == ['ndat', 'rho', 'mean']
+    assert _stat_names('minimal', sets, names) == ['rho']
+    assert _stat_names(['mean', 'ndat'], sets, names) == ['ndat', 'mean']
+    assert _stat_names(('minimal', 'mean'), sets, names) == ['rho', 'mean']
+    for off in (False, None, 'none'):
+        assert _stat_names(off, sets, names) == []
+    with pytest.raises(ValueError, match="'median' is not a valid stat_blk"):
+        _stat_names(['rho', 'median'], sets, names)
+
 def _swath_twin(ax):
     """The axis of the bars, which shares the x axis with the one of the lines"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
