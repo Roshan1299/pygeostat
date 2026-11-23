@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from .utils import format_plot, setup_plot
+from .utils import format_plot, setup_plot, _format_axes, _format_fontsize, _format_ticks
 from .export_image import export_image
 from .set_style import set_plot_style
 from ..pygeostat_parameters import Parameters
@@ -65,7 +65,8 @@ def _each(value, n, name):
 def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=None, ls='-', ls2='--', lw=None,
                     alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
                     title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True, axis_colors=None,
-                    legend=None, figsize=None, ax=None, grid=None, axis_xy=None):
+                    legend=None, figsize=None, ax=None, grid=None, axis_xy=None, ticks=None, fontsize=None,
+                    background=None):
     """The drawing of :func:`secondary_axis_plot`, without the plot style and the export, so that a plot built
     on it (such as grade_tonnage_plot) can add to the figure before it is saved. Returns the left axis, with the
     right one as ``ax.twin``"""
@@ -125,6 +126,9 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
     if ylabel2 is not None:
         twin.set_ylabel(ylabel2, fontsize=ax.yaxis.label.get_size())
     twin.tick_params(axis='y', labelsize=ax.yaxis.get_ticklabels()[0].get_size())
+    _format_axes(ax, grid=grid, ticks=ticks, fontsize=fontsize, background=background)
+    _format_ticks(twin, ticks)
+    _format_fontsize(twin, fontsize)
     for axis, side, color in zip((ax, twin), ('left', 'right'), axis_colors or (None, None)):
         if color is not None:
             axis.yaxis.label.set_color(color)
@@ -145,8 +149,9 @@ def _secondary_axis(x, y, y2, labels=None, labels2=None, colors=None, colors2=No
 def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors2=None, ls='-', ls2='--', lw=None,
                         alpha=None, fill=None, fill2=None, fill_label=None, xlabel=None, ylabel=None, ylabel2=None,
                         title=None, xlim=None, ylim=None, ylim2=None, logx=False, align_zeros=True,
-                        axis_colors=None, legend=None, figsize=None, ax=None, grid=None, axis_xy=None,
-                        plot_style=None, custom_style=None, output_file=None, **kwargs):
+                        axis_colors=None, legend=None, figsize=None, ax=None, grid=None, axis_xy=None, ticks=None,
+                        fontsize=None, background=None, plot_style=None, custom_style=None, output_file=None,
+                        **kwargs):
     """
     Plot lines against one x axis, some on a left y axis and some on a right y axis with its own scale, for
     example two different properties of the same samples or models. Each axis has its own label, limits and
@@ -193,6 +198,13 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
         grid (bool): plots the major grid lines if True. Based on Parameters['plotting.grid'] if None.
         axis_xy (bool): GSLIB-style axis visibility if True. Based on Parameters['plotting.axis_xy']
             if None.
+        ticks (bool, float or dict): tick marks on all axes. ``True`` draws them, ``False`` removes them,
+            a number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
+            ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number), or a
+            dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's sizes if None
+        background (color): colour of the plotting area, for example ``'lightgrey'`` or ``'white'``. The
+            style's if None
         plot_style (str): Use a predefined set of matplotlib plotting parameters
         custom_style (dict): Alter some of the predefined parameters in the ``plot_style`` selected
         output_file (str): Output figure file name and location
@@ -221,7 +233,7 @@ def secondary_axis_plot(x, y, y2, labels=None, labels2=None, colors=None, colors
                          lw=lw, alpha=alpha, fill=fill, fill2=fill2, fill_label=fill_label, xlabel=xlabel,
                          ylabel=ylabel, ylabel2=ylabel2, title=title, xlim=xlim, ylim=ylim, ylim2=ylim2, logx=logx,
                          align_zeros=align_zeros, axis_colors=axis_colors, legend=legend, figsize=figsize, ax=ax,
-                         grid=grid, axis_xy=axis_xy)
+                         grid=grid, axis_xy=axis_xy, ticks=ticks, fontsize=fontsize, background=background)
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
     return ax

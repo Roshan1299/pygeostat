@@ -1205,10 +1205,15 @@ def test_secondary_axis_plot_zeros_line_up_unless_told_not_to():
 def test_secondary_axis_plot_bands_and_axes_options():
     plt.close('all')
     x = np.arange(4.)
-    ax = gs.secondary_axis_plot(x, x, x, fill=(x - 1, x + 1), fill_label='Range',
-                                ylabel='L', ylabel2='R', logx=False)
+    ax = gs.secondary_axis_plot(x, x, x, fill=(x - 1, x + 1), fill_label='Range', ticks=6, fontsize={'label': 14},
+                                ylabel='L', ylabel2='R', background='lightgrey', logx=False)
+    ax.figure.canvas.draw()
     assert len(ax.collections) == 1 and len(_secondary_twin(ax).collections) == 0
     assert [t.get_text() for t in ax.get_legend().get_texts()][-1] == 'Range'
+    assert ax.yaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert _secondary_twin(ax).yaxis.get_major_ticks()[0].tick2line.get_markersize() == 6
+    assert ax.yaxis.label.get_fontsize() == 14 and _secondary_twin(ax).yaxis.label.get_fontsize() == 14
+    assert tuple(ax.get_facecolor()[:3]) == (0.8274509803921568,) * 3
     plt.close('all')
 
 
