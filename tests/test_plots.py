@@ -10,6 +10,7 @@ import pytest
 import numpy as np
 import pandas as pd
 import pygeostat as gs
+import matplotlib.markers
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgb
@@ -2305,6 +2306,150 @@ def test_grade_tonnage_plot_limits_of_the_two_vertical_axes():
         with pytest.raises(ValueError, match=message):
             gs.grade_tonnage_plot(data, 'g', **kwargs)
     assert plt.get_fignums() == []
+
+def _scatter_3d_data():
+    return pd.DataFrame({'a': [0., 1., 2., 3., 4., np.nan], 'b': [1., 2., 3., 4., 5., 6.],
+                         'c': [5., 4., 3., 2., 1., 0.], 'd': [10., 20., 30., 40., 50., 60.],
+                         'k': ['p', 'q', 'p', 'q', 'p', 'q']})
+
+
+def test_scatter_plot_3d_points_and_labels():
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c')
+    assert (ax.get_xlabel(), ax.get_ylabel(), ax.get_zlabel()) == ('a', 'b', 'c')
+    assert ax._draw_grid
+    assert not gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', grid=False)._draw_grid
+    x, y, z = ax.collections[0]._offsets3d
+    np.testing.assert_allclose(x, [0., 1., 2., 3., 4.])  # the row with a NaN is left out
+    np.testing.assert_allclose(y, [1., 2., 3., 4., 5.])
+    np.testing.assert_allclose(z, [5., 4., 3., 2., 1.])
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', xlabel='A', title='T', elev=10, azim=20)
+    assert ax.get_xlabel() == 'A' and ax.get_title() == 'T' and (ax.elev, ax.azim) == (10, 20)
+    plt.close('all')
+
+
+def test_scatter_plot_3d_colour_variable_and_limits():
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', c='d', clim=(0, 100))
+    points = ax.collections[0]
+    assert points.get_clim() == (0, 100)
+    np.testing.assert_allclose(points.get_array(), [10., 20., 30., 40., 50.])
+    assert ax.figure.axes[-1].get_ylabel() == 'd'  # the colour bar
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', c='d', cbar=False)
+    assert len(ax.figure.axes) == 1
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', c='red')
+    assert len(ax.figure.axes) == 1 and ax.collections[0].get_array() is None
+    plt.close('all')
+
+
+def test_scatter_plot_3d_shapes_by_category():
+    ax = gs.scatter_plot_3d(_scatter_3d_data(), 'a', 'b', 'c', cat='k')
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['p', 'q']
+    assert ax.get_legend().get_title().get_text() == 'k'
+    assert [len(p._offsets3d[0]) for p in ax.collections] == [3, 2]  # p: rows 0, 2, 4; q: 1, 3
+    shapes = [p.get_paths()[0].vertices for p in ax.collections]
+    circle = matplotlib.markers.MarkerStyle('o').get_path().vertices
+    triangle = matplotlib.markers.MarkerStyle('^').get_path().vertices
+    assert shapes[0].shape == circle.shape and shapes[1].shape == triangle.shape
+    ax = gs.scatter_plot_3d(_scatter_3d_data().assign(k=[2., 1., 2., 1., 2., 1.]), 'a', 'b', 'c',
+                            cat='k', markers=['s', 'D'])
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['1', '2']  # sorted, 1 for 1.0
+    assert [len(p._offsets3d[0]) for p in ax.collections] == [2, 3]
+    plt.close('all')
+
+
+def test_scatter_plot_3d_errors_leave_no_figure():
+    data = _scatter_3d_data()
+    with pytest.raises(ValueError, match="'nope'"):
+        gs.scatter_plot_3d(data, 'a', 'b', 'nope')
+    with pytest.raises(ValueError, match="'nope'"):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='nope')
+    with pytest.raises(ValueError, match='neither a column'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', c='nope')
+    with pytest.raises(ValueError, match='3D axis'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', ax=plt.figure().add_subplot())
+    plt.close('all')
+    with pytest.raises(ValueError, match='2 categories and 1 markers'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', markers=['o'])
+    with pytest.raises(ValueError, match='No row'):
+        gs.scatter_plot_3d(data.assign(a=np.nan), 'a', 'b', 'c')
+    with pytest.raises(ValueError, match='DataFile or a pd.DataFrame'):
+        gs.scatter_plot_3d(data.values, 'a', 'b', 'c')
+    assert plt.get_fignums() == []
+
+
+def test_scatter_plot_3d_axis_datafile_and_output(plot_output_dir):
+    fig = plt.figure()
+    ax3 = fig.add_subplot(projection='3d')
+    out = os.path.join(plot_output_dir, 'scatter3d.png')
+    data = gs.ExampleData('3d_correlation')
+    ax = gs.scatter_plot_3d(data, 'Var1', 'Var2', 'Var3', c='PC1', ax=ax3, output_file=out)
+    assert ax is ax3 and plt.get_fignums() == [fig.number] and os.path.isfile(out)
+    assert len(ax.collections[0]._offsets3d[0]) == len(data.data)
+    plt.close('all')
+
+
+def test_scatter_plot_3d_colour_by_category():
+    data = _scatter_3d_data().assign(k=['p', 'q', 'r', 'p', 'q', 'r'], a=[0., 1., 2., 3., 4., 5.])
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', cat_as='color')
+    palette = plt.get_cmap('tab10')
+    assert [tuple(p.get_facecolor()[0][:3]) for p in ax.collections] == [palette(i)[:3] for i in range(3)]
+    # the shape is the same for all the categories, the legend shows each colour
+    assert len({p.get_paths()[0].vertices.shape for p in ax.collections}) == 1
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['p', 'q', 'r']
+    assert [h.get_markerfacecolor() for h in ax.get_legend().legend_handles] == [palette(i) for i in range(3)]
+    # given colours, and colour with shape
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', cat_as='both', colors=['red', 'green', 'blue'])
+    assert [tuple(p.get_facecolor()[0][:3]) for p in ax.collections] == [(1., 0., 0.), (0., 0.5019607843137255, 0.), (0., 0., 1.)]
+    assert len({p.get_paths()[0].vertices.shape for p in ax.collections}) == 3
+    # shapes are still the default, with one colour
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k')
+    assert len({tuple(p.get_facecolor()[0]) for p in ax.collections}) == 1
+    plt.close('all')
+
+
+def test_scatter_plot_3d_colour_by_category_with_many_categories_and_errors():
+    data = pd.DataFrame({'a': np.arange(12.), 'b': np.arange(12.) ** 2, 'c': np.arange(12.)[::-1], 'k': np.arange(12)})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', cat_as='color')  # more than 10: the colours of plotting.cmap_cat
+    cmap = plt.get_cmap(gs.Parameters['plotting.cmap_cat'])
+    assert tuple(ax.collections[11].get_facecolor()[0][:3]) == cmap(11)[:3]
+    plt.close('all')
+    with pytest.raises(ValueError, match='cat_as'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', cat_as='size')
+    with pytest.raises(ValueError, match='cannot also be colored'):
+        gs.scatter_plot_3d(data.assign(d=1.), 'a', 'b', 'c', c='d', cat='k', cat_as='color')
+    with pytest.raises(ValueError, match='12 categories and 3 colors'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', cat_as='color', colors=['r', 'g', 'b'])
+    assert plt.get_fignums() == []
+
+
+def test_scatter_plot_3d_shape_only_points_are_dark_and_the_legend_title_is_as_large_as_the_entries():
+    data = pd.DataFrame({'a': np.arange(6.), 'b': np.arange(6.) ** 2, 'c': np.arange(6.)[::-1],
+                         'k': ['p', 'q'] * 3, 'v': np.arange(6.)})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k')
+    assert {tuple(p.get_facecolor()[0][:3]) for p in ax.collections} == {(0.15, 0.15, 0.15)}
+    legend = ax.get_legend()
+    sizes = {t.get_fontsize() for t in legend.get_texts()} | {legend.get_title().get_fontsize()}
+    assert len(sizes) == 1
+    assert sizes == {ax.xaxis.get_ticklabels()[0].get_size()}
+    # with a colour the points keep it
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', c='v')
+    assert len({tuple(p.get_facecolor()[0][:3]) for p in ax.collections}) > 1
+    plt.close('all')
+
+
+def test_scatter_plot_3d_colour_bar_is_close_to_the_plot():
+    data = pd.DataFrame({'a': np.arange(6.), 'b': np.arange(6.) ** 2, 'c': np.arange(6.)[::-1], 'v': np.arange(6.)})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', c='v')
+    ax.figure.canvas.draw()
+    bar = ax.figure.axes[-1]
+    assert bar.get_position().x0 - ax.get_position().x1 < 0.1
+    plt.close('all')
+
+
+def test_scatter_plot_3d_legend_shows_the_colour_given_in_c():
+    data = pd.DataFrame({'a': np.arange(6.), 'b': np.arange(6.) ** 2, 'c': np.arange(6.)[::-1], 'k': ['p', 'q'] * 3})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', c='red')
+    assert {h.get_markerfacecolor() for h in ax.get_legend().legend_handles} == {'red'}
+    plt.close('all')
 
 
 def _secondary_twin(ax):

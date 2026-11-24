@@ -9,6 +9,7 @@ from .histogram_plot import histogram_plot
 from .histogram_plot_simulation import histogram_plot_simulation
 from .slice_plot import slice_plot
 from .scatter_plot import *
+from .scatter_plot_3d import scatter_plot_3d
 from .pit_plot import pit_plot
 from .export_image import export_image
 from .loadings_plot import loadings_plot

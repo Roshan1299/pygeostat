@@ -306,6 +306,7 @@ default_parameters = {
 	'plotting.cross_plot.c': ['kde', _validate_kde_or_color],
 	'plotting.cross_plot.s': [10, _validate_float],
 	'plotting.cross_plot.histcolor': ['0.5', _validate_color],
+	'plotting.scatter_plot_3d.figsize': [(7, 6), _validate_list],
 	'plotting.scatter_plot.s': [None, _validate_float_or_None],
 	'plotting.scatter_plot.c': ['kde', _validate_kde_or_color],
 	'plotting.scatter_plot.cmap': ['viridis', _validate_string],
@@ -438,6 +439,7 @@ default_parameter_descriptions = {
 	'plotting.cross_plot.c': 'Color of the points in cross_plot: a Matplotlib color or "kde" for the density of the points.',
 	'plotting.cross_plot.s': 'Size of the points in cross_plot (area, as in matplotlib.pyplot.scatter).',
 	'plotting.cross_plot.histcolor': 'Color of the histogram bars in cross_plot.',
+	'plotting.scatter_plot_3d.figsize': 'Size (width, height) of the figure of scatter_plot_3d.',
 	'plotting.scatter_plot.s': ('Size of scatter in scatter_plot, which is based on Matplotlib.rcParams if '
 						   'None'),
 	'plotting.scatter_plot.c': ('Color of scatter in scatter_plot, which is either a valid Matplotlib '
