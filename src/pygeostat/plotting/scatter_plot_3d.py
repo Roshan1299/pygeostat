@@ -12,16 +12,18 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, is_color_like
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from .export_image import export_image
 from .set_style import set_plot_style
 from ..pygeostat_parameters import Parameters
 
+_DATASET = '_dataset'  # the column that tells the data sets of a list apart
 
 
 @set_plot_style
 def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, colors=None, s=None,
-                    alpha=None, cmap=None, clim=None, cbar=True, xlabel=None,
-                    ylabel=None, zlabel=None, title=None,
+                    alpha=None, cmap=None, clim=None, cbar=True, drop_lines=False, xlabel=None,
+                    ylabel=None, zlabel=None, title=None, labels=None,
                     elev=25, azim=-60, grid=True, figsize=None, ax=None, plot_style=None,
                     custom_style=None, output_file=None, **kwargs):
     """
@@ -41,14 +43,17 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     their use in this function can be understood.
 
     Parameters:
-        data: DataFile or DataFrame with the variables
+        data: DataFile or DataFrame with the variables. A list of them draws several data sets in one plot,
+            each in its own colour with a legend (they need the same column names for ``x``, ``y`` and ``z``;
+            ``cat`` and ``c`` cannot be used then)
         x, y, z (str): column names of the variables on the three axes
         c (str): column name of a numeric variable that sets the colour of the points. A matplotlib
             colour instead gives all the points that colour. Default: one colour
         cat (str): column name of a category, with a legend. It sets the shape, the colour or both of
             the points, as ``cat_as`` says
         cat_as (str): ``'shape'`` (default), ``'color'`` or ``'both'``: what the category sets. With
-            ``'color'`` and ``'both'`` the points cannot also be colored by the variable ``c``
+            ``'color'`` and ``'both'`` the points cannot also be colored by the variable ``c``. For a
+            list of data sets the default is ``'color'``, and ``'both'`` also gives each its own shape
         markers (list): matplotlib marker symbols, one for each category in order of the sorted
             categories. Default: circle, triangle, square, diamond, inverted triangle, plus, cross
         colors (list): matplotlib colors, one for each category in order of the sorted categories.
@@ -59,8 +64,12 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         cmap (str): colormap of ``c``. If None, ``gs.Parameters['plotting.scatter_plot.cmap']``
         clim (tuple): limits (min, max) of the colour scale of ``c``. Default: the range of ``c``
         cbar (bool): add a colour bar when ``c`` is a variable
+        drop_lines (bool): draw a thin line from each point down to the floor of the plot. Together with
+            the grid it makes the position of a point easier to read, since the three coordinates of a
+            point cannot otherwise be told apart in a flat picture
         xlabel, ylabel, zlabel (str): axis labels (default: the column names)
         title (str): title of the plot
+        labels (list): legend name of each data set when ``data`` is a list (default: ``'Data 1'``, ``'Data 2'``, ...)
         elev (float): elevation of the viewing angle in degrees
         azim (float): azimuth of the viewing angle in degrees
         grid (bool): plots the major grid lines if True
@@ -99,6 +108,29 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     |
     """
     from ..data.data import DataFile
+    several = isinstance(data, (list, tuple))
+    if several:
+        if cat is not None or c is not None:
+            raise ValueError("`cat` and `c` cannot be used with a list of data sets: they are told apart by colour")
+        frames = [d.data if isinstance(d, DataFile) else d for d in data]
+        if not frames or not all(isinstance(f, pd.DataFrame) for f in frames):
+            raise ValueError("A list of data sets must hold gs.DataFile or pd.DataFrame objects")
+        names = ['Data %d' % (i + 1) for i in range(len(frames))] if labels is None else list(labels)
+        if len(names) != len(frames):
+            raise ValueError("`labels` needs one name for each of the %d data sets" % len(frames))
+        if len(set(names)) != len(names):
+            raise ValueError("`labels` must be different for each data set, not %s" % names)
+        for name in [x, y, z]:
+            if any(name not in f.columns for f in frames):
+                raise ValueError("%r is not a column of every data set" % (name,))
+        for f, n in zip(frames, names):
+            if f[[x, y, z]].dropna().empty:
+                raise ValueError("%r has no row with a value in all of %r, %r and %r" % (n, x, y, z))
+        # a categorical column keeps the order of the data sets in the legend
+        data = pd.concat([f[[x, y, z]].assign(**{_DATASET: pd.Categorical([n] * len(f), categories=names)})
+                          for f, n in zip(frames, names)], ignore_index=True)
+        cat = _DATASET
+        cat_as = 'color' if cat_as is None else cat_as
     if isinstance(data, DataFile):
         data = data.data
     if not isinstance(data, pd.DataFrame):
@@ -168,13 +200,18 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         if cat is not None:
             handles.append(Line2D([], [], ls='', marker=marker, mfc=colors[i] if by_color else (c if colour_var is None and c is not None else shape_color),
                                   mec=edge, mew=0.4, label=_name(value)))
+    if drop_lines:
+        floor = ax.get_zlim()[0]
+        ax.add_collection3d(Line3DCollection([((px, py, floor), (px, py, pz)) for px, py, pz in
+                                              zip(table[x], table[y], table[z])], colors='0.55', linewidths=0.4,
+                                             alpha=0.6, zorder=0), autolim=False)  # the floor stays where it is
     if colour_var and cbar:
         colorbar = fig.colorbar(points, ax=ax, shrink=0.6, pad=0.12)
         colorbar.set_label(colour_var, fontsize=size)
         colorbar.ax.tick_params(labelsize=size)
     if handles:
         # the title as large as the entries
-        ax.legend(handles=handles, title=cat, loc='upper left', fontsize=size,
+        ax.legend(handles=handles, title=None if several else cat, loc='upper left', fontsize=size,
                   title_fontsize=size)
     # Few ticks, so that the labels of a corner do not run into each other
     for axis, name, label in zip((ax.xaxis, ax.yaxis, ax.zaxis), axes, (xlabel, ylabel, zlabel)):

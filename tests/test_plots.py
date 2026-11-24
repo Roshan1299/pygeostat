@@ -2421,6 +2421,21 @@ def test_scatter_plot_3d_colour_by_category_with_many_categories_and_errors():
     assert plt.get_fignums() == []
 
 
+def test_scatter_plot_3d_drop_lines_reach_the_floor():
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+    data = _scatter_3d_data()
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c')
+    assert not [c for c in ax.collections if isinstance(c, Line3DCollection)]
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', drop_lines=True)
+    lines = [c for c in ax.collections if isinstance(c, Line3DCollection)]
+    assert len(lines) == 1 and len(lines[0]._segments3d) == 5  # the row with a NaN has no line
+    floor = ax.get_zlim()[0]
+    for (x0, y0, z0), (x1, y1, z1) in lines[0]._segments3d:
+        assert (x0, y0) == (x1, y1) and z0 == floor and z1 >= floor
+    np.testing.assert_allclose(sorted(s[1][2] for s in lines[0]._segments3d), [1., 2., 3., 4., 5.])
+    plt.close('all')
+
+
 def test_scatter_plot_3d_shape_only_points_are_dark_and_the_legend_title_is_as_large_as_the_entries():
     data = pd.DataFrame({'a': np.arange(6.), 'b': np.arange(6.) ** 2, 'c': np.arange(6.)[::-1],
                          'k': ['p', 'q'] * 3, 'v': np.arange(6.)})
@@ -2450,6 +2465,44 @@ def test_scatter_plot_3d_legend_shows_the_colour_given_in_c():
     ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k', c='red')
     assert {h.get_markerfacecolor() for h in ax.get_legend().legend_handles} == {'red'}
     plt.close('all')
+
+
+def test_scatter_plot_3d_several_data_sets():
+    """A list of data sets gives each its own colour and legend entry, in the order given."""
+    first, second = _scatter_3d_data(), _scatter_3d_data().assign(a=lambda d: d['a'] + 10)
+    ax = gs.scatter_plot_3d([second, first], 'a', 'b', 'c', labels=['Zeta', 'Alpha'])
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Zeta', 'Alpha']  # not alphabetical
+    assert ax.get_legend().get_title().get_text() == ''
+    assert len(ax.collections) == 2
+    colours = [tuple(c.get_facecolor()[0][:3]) for c in ax.collections]
+    assert colours[0] != colours[1]
+    assert [len(c._offsets3d[0]) for c in ax.collections] == [5, 5]  # the row with a NaN is left out of each
+    plt.close('all')
+    ax = gs.scatter_plot_3d([first, second], 'a', 'b', 'c')
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ['Data 1', 'Data 2']
+    plt.close('all')
+    ax = gs.scatter_plot_3d([first, second], 'a', 'b', 'c', cat_as='both')  # colour and shape
+    assert len({c.get_paths()[0].vertices.tobytes() for c in ax.collections}) == 2
+    plt.close('all')
+
+
+def test_scatter_plot_3d_several_data_sets_errors_leave_no_figure():
+    plt.close('all')
+    first = _scatter_3d_data()
+    with pytest.raises(ValueError, match='cannot be used with a list'):
+        gs.scatter_plot_3d([first, first], 'a', 'b', 'c', cat='a')
+    with pytest.raises(ValueError, match='one name for each'):
+        gs.scatter_plot_3d([first, first], 'a', 'b', 'c', labels=['only one'])
+    with pytest.raises(ValueError, match='every data set'):
+        gs.scatter_plot_3d([first, first.drop(columns='b')], 'a', 'b', 'c')
+    with pytest.raises(ValueError, match='must hold'):
+        gs.scatter_plot_3d([first, 3], 'a', 'b', 'c')
+    with pytest.raises(ValueError, match='different for each'):
+        gs.scatter_plot_3d([first, first], 'a', 'b', 'c', labels=['x', 'x'])
+    nothing = first.assign(a=np.nan)  # no row is left once the NaN are dropped
+    with pytest.raises(ValueError, match="'Data 2' has no row"):
+        gs.scatter_plot_3d([first, nothing, first], 'a', 'b', 'c')
+    assert len(plt.get_fignums()) == 0
 
 
 def _secondary_twin(ax):
