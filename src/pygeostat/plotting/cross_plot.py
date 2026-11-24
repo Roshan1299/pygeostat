@@ -23,7 +23,8 @@ _STAT_SETS = {'all': ['ndat', 'rho', 'mean', 'var'], 'minimal': ['rho']}
 def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, mc=None, ms=None,
                cmap=None, clim=None, log_color=False, cbar=False, cbar_label=None, hist_color=None, label_size=None,
                line45=False, stat_blk='all', figsize=None, ax=None, grid=None,
-               axis_xy=None, stat_fontsize=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
+               axis_xy=None, x2=None, y2=None, mc2='C1', label=None, label2=None,
+               stat_fontsize=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot any variable ``y`` against any other variable ``x`` as points, with the histogram of ``x`` below and the histogram of ``y``
     on the left, as in the cross plots of the Geostatistics Lessons. The correlation coefficient is
@@ -59,7 +60,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         cbar (bool): add a colour bar when the points are colored by values or ``'kde'``
         cbar_label (str): label of the colour bar (default: the name of the values, or "Density" for ``'kde'``)
         hist_color (str): matplotlib color of the histogram bars. If None,
-            ``gs.Parameters['plotting.cross_plot.histcolor']``
+            ``gs.Parameters['plotting.cross_plot.histcolor']``. Ignored with two data sets, whose
+            histograms take the color of their points
         label_size (float): font size of the axis labels. If None, the one of the tick labels
         line45 (bool): draw the 45 degree line (x = y) and, if ``lim`` is None, use the same limits on both
             axes, to compare an estimate with the true values
@@ -75,6 +77,12 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         grid (bool): plots the major grid lines if True. Based on Parameters['plotting.grid'] if None.
         axis_xy (bool): GSLIB-style axis visibility if True. Based on Parameters['plotting.axis_xy']
             if None.
+        x2, y2: a second data set, drawn over the first in the colour ``mc2``, with its histograms over
+            the first ones (both half transparent). Both are needed. The two sets are given a legend, with
+            the number of pairs and the correlation coefficient of each (if ``stat_blk`` has them), and
+            the mean and variance of each are written in its colour. ``mc`` must then be a single colour (``'C0'`` if None), not ``'kde'`` or values
+        mc2 (str): matplotlib color of the second data set
+        label, label2 (str): legend labels of the two data sets (default ``'Data 1'`` and ``'Data 2'``)
         stat_fontsize (float): font size of the statistics (correlation, mean and variance). If None,
             ``gs.Parameters['plotting.stat_fontsize']``, and it does not follow ``fontsize``
         plot_style (str): Use a predefined set of matplotlib plotting parameters
@@ -106,6 +114,22 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     y = pd.Series(np.ravel(y), dtype=float)
     if len(x) != len(y):
         raise ValueError("x and y must have the same length")
+    two = x2 is not None or y2 is not None
+    if two:
+        if x2 is None or y2 is None:
+            raise ValueError("x2 and y2 must be given together")
+        x2 = pd.Series(np.ravel(x2), dtype=float)
+        y2 = pd.Series(np.ravel(y2), dtype=float)
+        if len(x2) != len(y2):
+            raise ValueError("x2 and y2 must have the same length")
+        keep2 = x2.notna() & y2.notna()
+        x2, y2 = x2[keep2], y2[keep2]
+        if len(x2) < 2:
+            raise ValueError("At least two pairs without NaN are needed in the second data set")
+        if mc is None:
+            mc = 'C0'
+        elif isinstance(mc, (pd.Series, np.ndarray)) or (isinstance(mc, str) and mc.lower() == 'kde'):
+            raise ValueError("mc must be a single colour when x2 and y2 are given")
     mc = Parameters['plotting.cross_plot.c'] if mc is None else mc
     values = None
     if isinstance(mc, (pd.Series, np.ndarray)):
@@ -129,7 +153,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         values = values[keep]
     if log_color and values is not None and not (values > 0).any():
         raise ValueError("log_color needs at least one value above zero")
-    xs, ys = x, y
+    xs = x if x2 is None else pd.concat([x, x2])
+    ys = y if y2 is None else pd.concat([y, y2])
     if line45 and lim is None:
         lim = (min(xs.min(), ys.min()), max(xs.max(), ys.max()))
     xr = yr = lim
@@ -152,7 +177,15 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         ax.set_position([0.28, 0.28, 0.60 if cbar and values is not None else 0.67, 0.67])
     histx = ax.inset_axes([0, -0.28, 1, 0.22], sharex=ax)
     histy = ax.inset_axes([-0.28, 0, 0.22, 1], sharey=ax)
-    if values is None:
+    if two:
+        def tag(a, b):
+            parts = (['n = %d' % len(a)] if 'ndat' in stats_on else []) + (
+                [r'$\rho = %.3f$' % np.corrcoef(a, b)[0, 1]] if 'rho' in stats_on else [])
+            return ' (%s)' % ', '.join(parts) if parts else ''
+        ax.scatter(x, y, c=mc, s=ms, alpha=0.6, label=(label or 'Data 1') + tag(x, y))
+        ax.scatter(x2, y2, c=mc2, s=ms, alpha=0.6, label=(label2 or 'Data 2') + tag(x2, y2))
+        ax.legend(loc='best')
+    elif values is None:
         points = ax.scatter(x, y, c=mc, s=ms)
     else:
         order = np.argsort(values.to_numpy())  # the densest or highest points are drawn on top
@@ -173,8 +206,12 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         ax.set_ylim(yr)
     format_plot(ax, title=title, grid=grid, axis_xy=axis_xy)
     ax.tick_params(labelleft=False, labelbottom=False)
-    histx.hist(x, bins=edges[0], color=hist_color)
-    histy.hist(y, bins=edges[1], color=hist_color, orientation='horizontal')
+    bars = dict(alpha=0.6) if two else dict()
+    histx.hist(x, bins=edges[0], color=mc if two else hist_color, **bars)
+    histy.hist(y, bins=edges[1], color=mc if two else hist_color, orientation='horizontal', **bars)
+    if two:
+        histx.hist(x2, bins=edges[0], color=mc2, **bars)
+        histy.hist(y2, bins=edges[1], color=mc2, orientation='horizontal', **bars)
     histy.invert_xaxis()
     if line45:
         ax.plot(lim, lim, color='k', lw=1, ls='--', zorder=1)
@@ -190,7 +227,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     box = dict(facecolor='white', alpha=0.75, edgecolor='none', pad=2)
     corner_stats = [t for n, t in (('ndat', 'n = %d' % len(x)), ('rho', r'$\rho = %.3f$' % np.corrcoef(x, y)[0, 1]))
                     if n in stats_on]
-    if corner_stats:
+    if corner_stats and not two:
         # the corner with the fewest points under the label
         xl, yl = ax.get_xlim(), ax.get_ylim()
         fx = (x - xl[0]) / (xl[1] - xl[0])
@@ -209,8 +246,13 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     if hist_stats:
         lines = {'mean': lambda v: 'Mean = %.2f' % v.mean(), 'var': lambda v: 'Var = %.2f' % v.var(ddof=0)}
         text = lambda v: '\n'.join(lines[n](v) for n in hist_stats)
-        histx.annotate(text(x), (0.03, 0.97), xycoords='axes fraction', ha='left', va='top', fontsize=stat_size)
-        histy.annotate(text(y), (0, -0.02), xycoords='axes fraction', ha='left', va='top', fontsize=stat_size)
+        for i, (xv, yv, color) in enumerate([(x, y, mc), (x2, y2, mc2)] if two else [(x, y, None)]):
+            colour = {} if color is None else {'color': color}
+            # the second data set: beside the first above the histogram of x, below it under the one of y
+            histx.annotate(text(xv), (0.03 + 0.5 * i, 0.97), xycoords='axes fraction', ha='left', va='top',
+                           fontsize=stat_size, **colour)
+            histy.annotate(text(yv), (0, -0.02), xycoords='axes fraction', xytext=(0, -i * (len(hist_stats) + 0.6) * stat_size),
+                           textcoords='offset points', ha='left', va='top', fontsize=stat_size, **colour)
     ax.histx, ax.histy = histx, histy
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)

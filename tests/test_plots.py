@@ -1638,6 +1638,40 @@ def _two_sets():
     return x, 2 * x + rng.normal(0, 0.2, 60) + 3, x[::-1] * 1.5, rng.lognormal(1, 0.3, 60)
 
 
+def test_cross_plot_two_data_sets():
+    """A second data set gets its own colour, legend entry with its correlation, and histograms and statistics."""
+    x, y, x2, y2 = _two_sets()
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2, mc2='r', label='Data', label2='Estimate', nbins=5)
+    assert len(ax.collections) == 2
+    assert tuple(ax.collections[1].get_facecolor()[0][:3]) == (1.0, 0.0, 0.0)
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert labels == ['Data (n = 60, $\\rho = %.3f$)' % np.corrcoef(x, y)[0, 1],
+                      'Estimate (n = 60, $\\rho = %.3f$)' % np.corrcoef(x2, y2)[0, 1]]
+    assert len(ax.histx.patches) == 10 and len(ax.histy.patches) == 10  # 5 bars for each set
+    assert tuple(ax.histx.patches[-1].get_facecolor()[:3]) == (1.0, 0.0, 0.0)
+    assert [t.get_text() for t in ax.histx.texts] == ['Mean = %.2f\nVar = %.2f' % (v.mean(), v.var()) for v in (x, x2)]
+    assert [t.get_color() for t in ax.histx.texts] == ['C0', 'r']
+    assert not ax.texts  # the correlations are in the legend
+    # both sets use the same bins, so the bars of the two sets line up
+    np.testing.assert_allclose([p.get_x() for p in ax.histx.patches[:5]], [p.get_x() for p in ax.histx.patches[5:]])
+    plt.close('all')
+
+
+def test_cross_plot_two_data_sets_errors():
+    plt.close('all')
+    x, y, x2, y2 = _two_sets()
+    with pytest.raises(ValueError, match='together'):
+        gs.cross_plot(x, y, x2=x2)
+    with pytest.raises(ValueError, match='same length'):
+        gs.cross_plot(x, y, x2=x2, y2=y2[:5])
+    with pytest.raises(ValueError, match='single colour'):
+        gs.cross_plot(x, y, x2=x2, y2=y2, mc='kde')
+    with pytest.raises(ValueError, match='second data set'):
+        gs.cross_plot(x, y, x2=[1., np.nan], y2=[np.nan, 2.])
+    assert len(plt.get_fignums()) == 0  # nothing is left open by the errors
+    plt.close('all')
+
+
 @pytest.mark.parametrize('kw', [dict(lim=(5, 0))])
 def test_cross_plot_refuses_limits_that_do_not_increase(kw):
     """Reversed limits give a clear error, and no figure is left open."""
@@ -1661,10 +1695,24 @@ def test_cross_plot_stat_fontsize_is_separate_from_fontsize():
     assert len(plt.get_fignums()) == 0
 
 
+def test_cross_plot_two_data_sets_layout_and_transparency():
+    """The points and bars of two sets are transparent; the statistics of the second sit beside and below the first."""
+    plt.close('all')
+    x, y, x2, y2 = _two_sets()
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2)
+    assert [c.get_alpha() for c in ax.collections] == [0.6, 0.6]
+    assert {p.get_alpha() for p in ax.histx.patches + ax.histy.patches} == {0.6}
+    first, second = ax.histx.texts
+    assert first.xy[0] < second.xy[0] and first.xy[1] == second.xy[1]  # beside each other
+    first, second = ax.histy.texts
+    assert first.xyann[1] == 0 and second.xyann[1] < 0  # stacked, the second lower
+    plt.close('all')
+
+
 def test_cross_plot_stat_blk_chooses_the_statistics():
     """all writes every statistic, minimal only the correlation, a list the ones named, none nothing."""
     plt.close('all')
-    x, y, _, _ = _two_sets()
+    x, y, x2, y2 = _two_sets()
 
     def written(**kw):
         ax = gs.cross_plot(x, y, mc='C0', **kw)
@@ -1675,6 +1723,14 @@ def test_cross_plot_stat_blk_chooses_the_statistics():
     assert written(stat_blk='minimal') == ([rho], [])
     assert written(stat_blk=['mean']) == ([], ['Mean = %.2f' % x.mean(), 'Mean = %.2f' % y.mean()])
     assert written(stat_blk='none') == ([], []) and written(stat_blk=False) == ([], [])
+    plt.close('all')
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2, stat_blk='minimal')
+    assert [t.get_text() for t in ax.get_legend().get_texts()][0] == 'Data 1 (%s)' % rho
+    assert len(ax.histx.texts) == 0
+    plt.close('all')
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2, stat_blk=['mean'])
+    first, second = ax.histy.texts
+    assert second.xyann[1] == -1.6 * second.get_fontsize()  # one line each, so the second sits one line lower
     plt.close('all')
     with pytest.raises(ValueError, match="'median' is not a valid stat_blk"):
         gs.cross_plot(x, y, mc='C0', stat_blk=['median'])
