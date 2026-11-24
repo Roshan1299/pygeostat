@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import LogLocator, NullFormatter, StrMethodFormatter
-from .utils import get_label, format_plot, setup_plot, _set_stat_fontsize, _stat_names
+from .utils import get_label, format_plot, setup_plot, _set_stat_fontsize, _format_axes, _stat_names
 from ..pygeostat_parameters import Parameters
 from .export_image import export_image
 from .set_style import set_plot_style
@@ -25,7 +25,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
                cmap=None, clim=None, log_color=False, cbar=False, cbar_label=None, hist_color=None, label_size=None,
                line45=False, stat_blk='all', figsize=None, ax=None, grid=None,
                axis_xy=None, x2=None, y2=None, mc2='C1', label=None, label2=None, logx=False, logy=False,
-               log_counts=False, stat_fontsize=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
+               log_counts=False, ticks=None, fontsize=None, stat_fontsize=None, xlim=None, ylim=None,
+               background=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot any variable ``y`` against any other variable ``x`` as points, with the histogram of ``x`` below and the histogram of ``y``
     on the left, as in the cross plots of the Geostatistics Lessons. The correlation coefficient is
@@ -87,8 +88,17 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         logx, logy (bool): log scale of the x or y axis, for the points and the histograms. The values must be
             above zero, and the histogram bins are equal in log scale
         log_counts (bool): log scale for the counts of the two histograms (the axes without tick labels)
+        ticks (bool, float or dict): tick marks on the three axes. ``True`` draws them, ``False`` removes
+            them, a number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
+            ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number), or a
+            dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's sizes if None
         stat_fontsize (float): font size of the statistics (correlation, mean and variance). If None,
             ``gs.Parameters['plotting.stat_fontsize']``, and it does not follow ``fontsize``
+        xlim, ylim (tuple): ``(lower, upper)`` limits of one axis, instead of ``lim`` for that axis. The
+            data's if None
+        background (color): colour of the plotting area of the scatter plot, for example ``'lightgrey'``
+            or ``'white'``. The style's if None
         plot_style (str): Use a predefined set of matplotlib plotting parameters
         custom_style (dict): Alter some of the predefined parameters in the ``plot_style`` selected
         output_file (str): Output figure file name and location
@@ -164,7 +174,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             raise ValueError("The log scale of %s needs values above zero" % name)
     if line45 and lim is None:
         lim = (min(xs.min(), ys.min()), max(xs.max(), ys.max()))
-    xr = yr = lim
+    xr = lim if xlim is None else xlim
+    yr = lim if ylim is None else ylim
     for name, log, r, v in (('x', logx, xr, xs), ('y', logy, yr, ys)):
         if r is not None and len(r) != 2:
             raise ValueError("%slim must be (lower, upper), not %s" % (name, r))
@@ -275,6 +286,9 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
                            fontsize=stat_size, **colour)
             histy.annotate(text(yv), (0, -0.02), xycoords='axes fraction', xytext=(0, -i * (len(hist_stats) + 0.6) * stat_size),
                            textcoords='offset points', ha='left', va='top', fontsize=stat_size, **colour)
+    _format_axes(ax, grid=grid, ticks=ticks, fontsize=fontsize, background=background)
+    for h in (histx, histy):
+        _format_axes(h, grid=False, ticks=ticks, fontsize=fontsize)
     ax.histx, ax.histy = histx, histy
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)

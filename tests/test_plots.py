@@ -1689,11 +1689,30 @@ def test_cross_plot_log_axes_and_log_counts():
     plt.close('all')
     with pytest.raises(ValueError, match='above zero'):
         gs.cross_plot(x - 5, y, logx=True)
+    with pytest.raises(ValueError, match='lower limit'):
+        gs.cross_plot(x, y, logx=True, xlim=(0, 5))
     assert len(plt.get_fignums()) == 0
     plt.close('all')
 
 
-@pytest.mark.parametrize('kw', [dict(lim=(5, 0))])
+def test_cross_plot_limits_per_axis_ticks_fontsize_background():
+    """xlim and ylim replace lim for one axis and set the histogram bins; the options reach the histograms."""
+    x, y, _, _ = _two_sets()
+    ax = gs.cross_plot(x, y, lim=(0, 20), xlim=(0, 10), nbins=5, mc='C0', ticks=6, fontsize={'label': 13},
+                       background='lightgrey')
+    assert ax.get_xlim() == (0, 10) and ax.get_ylim() == (0, 20)
+    assert ax.histx.patches[0].get_x() == 0 and ax.histy.patches[0].get_y() == 0
+    ax.figure.canvas.draw()
+    assert ax.histx.xaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert ax.histy.yaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert ax.histx.xaxis.label.get_fontsize() == 13 and ax.histy.yaxis.label.get_fontsize() == 13
+    assert tuple(ax.get_facecolor()[:3]) == (0.8274509803921568,) * 3
+    with pytest.raises(ValueError, match='ylim must be'):
+        gs.cross_plot(x, y, ylim=(1, 2, 3))
+    plt.close('all')
+
+
+@pytest.mark.parametrize('kw', [dict(xlim=(5, 0)), dict(ylim=(3, 3)), dict(lim=(5, 0))])
 def test_cross_plot_refuses_limits_that_do_not_increase(kw):
     """Reversed limits give a clear error, and no figure is left open."""
     plt.close('all')
@@ -1707,9 +1726,10 @@ def test_cross_plot_stat_fontsize_is_separate_from_fontsize():
     """stat_fontsize sizes the correlation, mean and variance; fontsize does not change them."""
     plt.close('all')
     x, y, _, _ = _two_sets()
-    ax = gs.cross_plot(x, y, mc='C0', stat_fontsize=17)
+    ax = gs.cross_plot(x, y, mc='C0', stat_fontsize=17, fontsize=9)
     assert ax.texts[0].get_fontsize() == 17
     assert [t.get_fontsize() for t in ax.histx.texts + ax.histy.texts] == [17, 17]
+    assert ax.histx.xaxis.label.get_fontsize() == 9
     plt.close('all')
     with pytest.raises(ValueError, match='stat_fontsize'):
         gs.cross_plot(x, y, mc='C0', stat_fontsize=-1)
