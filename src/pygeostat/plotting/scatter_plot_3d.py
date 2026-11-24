@@ -15,9 +15,12 @@ from matplotlib.ticker import FixedFormatter, FixedLocator, MaxNLocator
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from .export_image import export_image
 from .set_style import set_plot_style
+from .utils import _set_stat_fontsize, _stat_names
 from ..pygeostat_parameters import Parameters
 
 _DATASET = '_dataset'  # the column that tells the data sets of a list apart
+_STAT_NAMES = ['ndat', 'rho', 'mean', 'var']
+_STAT_SETS = {'all': ['ndat', 'rho', 'mean', 'var'], 'minimal': ['rho']}
 
 
 def _log_ticks(lo, hi):
@@ -36,12 +39,28 @@ def _log_ticks(lo, hi):
     return np.log10(values), ['%g' % v for v in values]
 
 
+def _stat_lines(values, stats_on):
+    """The statistics asked for, one per line, of a table with the columns x, y and z"""
+    lines = []
+    if 'ndat' in stats_on:
+        lines.append('n = %d' % len(values))
+    if 'rho' in stats_on:
+        with np.errstate(all='ignore'):
+            rho = np.corrcoef(values.to_numpy().T)
+        lines.append(r'$\rho$ (xy, xz, yz) = %.2f, %.2f, %.2f' % (rho[0, 1], rho[0, 2], rho[1, 2]))
+    if 'mean' in stats_on:
+        lines.append('Mean (x, y, z) = %.3g, %.3g, %.3g' % tuple(values.mean()))
+    if 'var' in stats_on:
+        lines.append('Var (x, y, z) = %.3g, %.3g, %.3g' % tuple(values.var(ddof=0)))
+    return lines
+
+
 @set_plot_style
 def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, colors=None, s=None,
                     alpha=None, cmap=None, clim=None, cbar=True, drop_lines=False, xlabel=None,
                     ylabel=None, zlabel=None, title=None, labels=None,
                     elev=25, azim=-60, grid=True, xlim=None, ylim=None, zlim=None,
-                    logx=False, logy=False, logz=False, figsize=None, ax=None,
+                    logx=False, logy=False, logz=False, stat_blk=None, stat_fontsize=None, figsize=None, ax=None,
                     plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot three variables of a data set against each other in a 3D scatter plot, for example the gold,
@@ -94,6 +113,12 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         logx, logy, logz (bool): log scale for an axis, for a very skewed variable. The values must be above
             zero. The axis is drawn as the log10 of the values, with ticks at 1, 2 and 5 times the powers of ten,
             and the limits and the statistics are of the values
+        stat_blk (str or list): statistics to write in the upper right corner, in the colour of the data set
+            when ``data`` is a list. A preset, ``'all'`` (the number of points ``'ndat'``, the correlations
+            ``'rho'`` of the three pairs of variables, and the ``'mean'`` and ``'var'`` of each) or
+            ``'minimal'`` (``'rho'``), or a list of those names. ``False``, ``None`` or ``'none'`` writes none
+        stat_fontsize (float): font size of the statistics, as in the other plots (below 1, a fraction of the font size).
+            If None, ``gs.Parameters['plotting.stat_fontsize']``, or 0.75 if that is None too
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.scatter_plot_3d.figsize']``
         ax (ax): Matplotlib 3D axis to plot on (made with ``projection='3d'``)
@@ -175,12 +200,17 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     table = data[used].dropna()
     if table.empty:
         raise ValueError("No row has a value in all of %s" % ', '.join(repr(u) for u in used))
+    stats_on = _stat_names(stat_blk, _STAT_SETS, _STAT_NAMES)
+    # smaller than in the flat plots by default: the statistics share the corner with the points
+    stat_size = _set_stat_fontsize(0.75 if stat_fontsize is None and Parameters['plotting.stat_fontsize'] is None
+                                   else stat_fontsize)
     logs = (logx, logy, logz)
     for name, log, lim in zip(axes, logs, (xlim, ylim, zlim)):
         if log and not (table[name] > 0).all():
             raise ValueError("The log scale of %r needs values above zero" % name)
         if log and lim is not None and len(lim) == 2 and lim[0] <= 0:
             raise ValueError("The lower limit of a log scale must be above zero")
+    raw = table
     table = table.copy()
     for name, log in zip(axes, logs):
         if log:
@@ -260,6 +290,18 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
             positions, names = _log_ticks(*limits)
             axis.set_major_locator(FixedLocator(positions))
             axis.set_major_formatter(FixedFormatter(names))
+    if stats_on:
+        if several:
+            blocks = [(raw.loc[raw[cat] == value, axes], colors[i] if cat_as in ('color', 'both') else 'k')
+                      for i, (value, _) in enumerate(groups)]
+        else:
+            blocks = [(raw[axes], 'k')]
+        offset = 0
+        for block, color in blocks:  # the first data set on top
+            lines = _stat_lines(block, stats_on)
+            ax.annotate('\n'.join(lines), (0.98, 0.98), xycoords='axes fraction', xytext=(0, -offset),
+                        textcoords='offset points', ha='right', va='top', fontsize=stat_size, color=color)
+            offset += (len(lines) + 0.5) * stat_size * 1.3
     if title is not None:
         ax.set_title(title)
     ax.view_init(elev=elev, azim=azim)

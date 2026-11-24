@@ -2518,10 +2518,39 @@ def test_scatter_plot_3d_log_axes():
     assert [t.get_text() for t in ax.zaxis.get_ticklabels()] == ['1', '10', '100', '1000']  # a range of over 3 decades
     assert '.' in ''.join(t.get_text() for t in ax.yaxis.get_ticklabels())  # the other axis is as before
     plt.close('all')
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', logx=True, stat_blk=['mean'])
+    assert ax.texts[0].get_text() == 'Mean (x, y, z) = %.3g, %.3g, %.3g' % tuple(data[['a', 'b', 'c']].mean())  # not of the logs
+    plt.close('all')
     with pytest.raises(ValueError, match="log scale of 'a' needs values above zero"):
         gs.scatter_plot_3d(data.assign(a=[0., 1, 2, 3]), 'a', 'b', 'c', logx=True)
     with pytest.raises(ValueError, match='lower limit of a log scale'):
         gs.scatter_plot_3d(data, 'a', 'b', 'c', logx=True, xlim=(0, 10))
+    assert len(plt.get_fignums()) == 0
+
+
+def test_scatter_plot_3d_stat_blk_chooses_the_statistics():
+    """No statistics by default; all, minimal or a list write them in the corner, one block for each data set."""
+    plt.close('all')
+    data = _scatter_3d_data().dropna()
+    assert len(gs.scatter_plot_3d(data, 'a', 'b', 'c').texts) == 0
+    lines = lambda **kw: [t.get_text().split('\n') for t in gs.scatter_plot_3d(data, 'a', 'b', 'c', **kw).texts]
+    (all_lines,) = lines(stat_blk='all')
+    assert [l.split(' =')[0] for l in all_lines] == ['n', r'$\rho$ (xy, xz, yz)', 'Mean (x, y, z)', 'Var (x, y, z)']
+    assert all_lines[0] == 'n = %d' % len(data)
+    assert all_lines[2] == 'Mean (x, y, z) = %.3g, %.3g, %.3g' % tuple(data[['a', 'b', 'c']].mean())
+    (minimal,) = lines(stat_blk='minimal')
+    assert len(minimal) == 1 and minimal[0].startswith(r'$\rho$')
+    (named,) = lines(stat_blk=['var', 'ndat'])
+    assert [l.split(' =')[0] for l in named] == ['n', 'Var (x, y, z)']
+    assert lines(stat_blk='none') == [] and lines(stat_blk=False) == []
+    plt.close('all')
+    numbers = data[['a', 'b', 'c']]
+    ax = gs.scatter_plot_3d([numbers, numbers + 3], 'a', 'b', 'c', stat_blk='minimal', labels=['P', 'Q'])
+    assert len(ax.texts) == 2 and ax.texts[0].get_color() != ax.texts[1].get_color()
+    assert ax.texts[1].xyann[1] < ax.texts[0].xyann[1] == 0  # the second block is under the first
+    plt.close('all')
+    with pytest.raises(ValueError, match="'median' is not a valid stat_blk"):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', stat_blk=['median'])
     assert len(plt.get_fignums()) == 0
 
 
