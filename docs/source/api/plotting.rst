@@ -143,6 +143,14 @@ Location Plot
 .. autofunction:: pygeostat.plotting.location_plot
 
 
+Secondary Axis Plot
+***************************
+.. autofunction:: pygeostat.plotting.secondary_axis_plot
+
+Grade-Tonnage Plot
+***************************
+.. autofunction:: pygeostat.plotting.grade_tonnage_plot
+
 Histogram Plot
 ***************
 .. autofunction:: pygeostat.plotting.histogram_plot
@@ -199,6 +207,26 @@ Quantile-Quantile Plot
 Probability Plot
 ***********************
 .. autofunction:: pygeostat.plotting.probability_plot
+
+Swath Plot
+***************************
+.. autofunction:: pygeostat.plotting.swath_plot
+
+Cross Plot
+***************************
+.. autofunction:: pygeostat.plotting.cross_plot
+
+Clip Plot
+***************************
+.. autofunction:: pygeostat.plotting.clip_plot
+
+.. autofunction:: pygeostat.plotting.convex_hull
+
+.. autofunction:: pygeostat.plotting.convex_hull_3d
+
+Scatter Plot in 3D
+***************************
+.. autofunction:: pygeostat.plotting.scatter_plot_3d
 
 Validation Plot 
 ***************************
