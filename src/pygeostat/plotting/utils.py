@@ -1178,6 +1178,97 @@ def _stat_names(stat_blk, statsets, names):
     return [name for name in names if name in chosen]
 
 
+def _stat_number(value, sigfigs=None, roundstats=None):
+    """Write a statistic with ``sigfigs`` decimals, or significant figures if ``roundstats`` is False, the same as in
+    the other plots. ``gs.Parameters['plotting.sigfigs']`` and ``['plotting.roundstats']`` if None."""
+    sigfigs = Parameters['plotting.sigfigs'] if sigfigs is None else sigfigs
+    roundstats = Parameters['plotting.roundstats'] if roundstats is None else roundstats
+    text = '{:.{}f}'.format(value, sigfigs) if roundstats else '{:.{}g}'.format(value, sigfigs)
+    return text[1:] if text.startswith('-') and float(text) == 0 else text
+
+
+def _square_axes(ax, colorbar=False):
+    """
+    Private function that puts the axes of a new figure in a square, with room around it for the two histograms
+    of :func:`_marginal_hists`, their statistics and, if ``colorbar``, a colour bar next to the plot.
+    """
+    width, height = ax.figure.get_size_inches()
+    side = (0.42 if colorbar else 0.50) * min(width, height)
+    ax.set_position([0.8 / width, (height - 0.5 - side) / height, side / width, side / height])
+
+
+def _marginal_hists(ax, xsets, ysets, xbins, ybins, stats=('mean', 'std'), stat_fontsize=None,
+                    log_counts=False, logx=False, logy=False, gap=0.12, sigfigs=None, roundstats=None):
+    """
+    Private function that draws the histogram of the x values under ``ax`` and the one of the y values to
+    its right, with their statistics beside them, as in the scatter plot of Figure 9 of Castro Moreira,
+    Costa and Deutsch (2026). The scatter plot keeps its own tick labels and axis labels, and the bars of
+    each histogram start at the line next to the scatter plot, hanging down or pointing right. There is
+    no room reserved: the histograms are drawn outside ``ax``, so leave space around it.
+
+    Parameters:
+        ax(matplotlib axis handle): the scatter plot
+        xsets, ysets(list of tuples): ``(values, color, weights)`` of each histogram drawn on that axis: one
+            tuple, or one for each data set. The weights may be None. With several, the bars are drawn with
+            ``alpha`` and the statistics are written in the color of each
+        xbins, ybins(array): the histogram bin edges
+        stats(list): any of ``'mean'``, ``'std'`` and ``'var'``, written beside each histogram. The number of data
+            is not written here: it is on the plot
+        stat_fontsize(float): font size of the statistics (as given by :func:`_set_stat_fontsize`)
+        log_counts(bool): log scale for the counts
+        logx, logy(bool): the axis is a log scale. The mean, standard deviation and variance are then
+            those of the natural logarithm of the values, which are the ones the histogram shows
+        gap(float): space between the right edge of ``ax`` and the histogram of y, in inches (more with a colour bar)
+        sigfigs(int), roundstats(bool): digits of the statistics, as in :func:`_stat_number`
+
+    Return:
+        histx, histy(matplotlib axis handles): the histogram below and the histogram to the right
+    """
+    # the sizes are in inches, so that they do not depend on the size of the plot: room for the tick labels and the
+    # axis label between the plot and the histogram below it
+    box = ax.get_position()
+    width, height = box.width * ax.figure.get_size_inches()[0], box.height * ax.figure.get_size_inches()[1]
+    thick = max(0.2 * min(width, height), 0.45)
+    histx = ax.inset_axes([0, -(0.6 + thick) / height, 1, thick / height], sharex=ax)
+    histy = ax.inset_axes([1 + gap / width, 0, thick / width, 1], sharey=ax)
+    for h, sets, bins, orient in ((histx, xsets, xbins, 'vertical'), (histy, ysets, ybins, 'horizontal')):
+        for values, colour, weights in sets:
+            if len(sets) > 1:
+                # several data sets: only an outline in its colour, so no set hides another
+                h.hist(values, bins=bins, weights=weights, color=colour, log=log_counts, orientation=orient,
+                       histtype='step', linewidth=1.4)
+            else:
+                h.hist(values, bins=bins, weights=weights, color=colour, edgecolor='0.25', linewidth=0.6,
+                       log=log_counts, orientation=orient)
+    histx.invert_yaxis()
+    for h, keep in ((histx, 'top'), (histy, 'left')):
+        for side in ('top', 'bottom', 'left', 'right'):
+            h.spines[side].set_visible(side == keep)
+        h.patch.set_alpha(0)
+    histx.tick_params(bottom=False, labelbottom=False)
+    histx.set_yticks([])
+    histy.tick_params(left=False, labelleft=False)
+    histy.set_xticks([])
+    shown = [name for name in ('mean', 'std', 'var') if name in stats]
+    size = _set_stat_fontsize(stat_fontsize)
+    if shown:
+        # next to each histogram, at the same distance from its axes whatever the bars are
+        for h, sets, log in ((histx, xsets, logx), (histy, ysets, logy)):
+            sub = r'_{\ln}' if log else ''
+            symbols = {'mean': '$m%s$' % sub, 'std': r'$\sigma%s$' % sub, 'var': r'$\sigma%s^2$' % sub}
+            for k, (values, colour, weights) in enumerate(sets):
+                v = np.log(np.asarray(values, dtype=float)) if log else np.asarray(values, dtype=float)
+                mean = np.average(v, weights=weights)
+                var = np.average((v - mean) ** 2, weights=weights)
+                numbers = {name: _stat_number(number, sigfigs, roundstats)
+                           for name, number in (('mean', mean), ('std', np.sqrt(var)), ('var', var))}
+                text = '\n'.join('%s = %s' % (symbols[name], numbers[name]) for name in shown)
+                h.annotate(text, (1, 0.5), xycoords='axes fraction', xytext=(12, ((len(sets) - 1) / 2 - k) * (len(shown) + 0.6) * size),
+                           textcoords='offset points', ha='left', va='center', fontsize=size, linespacing=1.0,
+                           **({'color': colour} if len(sets) > 1 else {}))
+    return histx, histy
+
+
 def _format_axes(ax, grid=None, ticks=None, fontsize=None, xlim=None, ylim=None, background=None):
     '''
     Private function for the options that every pygeostat plot gives to its axis: grid, tick marks,

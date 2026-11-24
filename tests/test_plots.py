@@ -1500,6 +1500,48 @@ def test_cross_plot_stats_and_nan():
 
 
 
+def test_stat_number_uses_the_digits_asked_for_and_never_writes_minus_zero():
+    from pygeostat.plotting.utils import _stat_number
+    assert _stat_number(-0.004, sigfigs=2) == '0.00'  # not -0.00
+    assert _stat_number(-0.006, sigfigs=2) == '-0.01' and _stat_number(0.006, sigfigs=2) == '0.01'
+    assert _stat_number(1.23456, sigfigs=4, roundstats=True) == '1.2346'  # that many decimals
+    assert _stat_number(1234.56, sigfigs=2, roundstats=False) == '1.2e+03'  # that many significant figures
+    assert _stat_number(0.0123456, sigfigs=3, roundstats=False) == '0.0123'
+
+
+def test_square_axes_makes_the_plot_square_and_smaller_when_there_is_a_colour_bar():
+    from pygeostat.plotting.utils import _square_axes
+    sides = []
+    for bar in (False, True):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        _square_axes(ax, colorbar=bar)
+        box = ax.get_position()
+        assert abs(box.width * 6 - box.height * 4) < 1e-9
+        sides.append(box.width * 6)
+        plt.close(fig)
+    np.testing.assert_allclose(sides, (0.50 * 4, 0.42 * 4))  # a fraction of the shorter side of the figure
+
+
+def test_marginal_hists_are_outside_the_plot_and_write_their_statistics_with_the_digits_asked_for():
+    from pygeostat.plotting.utils import _marginal_hists, _square_axes
+    rng = np.random.default_rng(1)
+    x, y = rng.lognormal(0, 0.5, 50), rng.normal(2, 3, 50)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    _square_axes(ax)
+    ax.scatter(x, y)
+    histx, histy = _marginal_hists(ax, [(x, '0.9', None)], [(y, '0.9', None)], np.geomspace(x.min(), x.max(), 11),
+                                   np.linspace(y.min(), y.max(), 11), stats=['mean', 'std', 'var'], logx=True, sigfigs=3)
+    fig.canvas.draw()
+    assert sum(p_.get_height() for p_ in histx.patches) == 50 and sum(p_.get_width() for p_ in histy.patches) == 50
+    lx = np.log(x)  # on a log axis the statistics are those of the logarithm
+    assert histx.texts[0].get_text() == '$m_{\\ln}$ = %.3f\n$\\sigma_{\\ln}$ = %.3f\n$\\sigma_{\\ln}^2$ = %.3f' % (
+        lx.mean(), lx.std(), lx.var())
+    assert histy.texts[0].get_text() == '$m$ = %.3f\n$\\sigma$ = %.3f\n$\\sigma^2$ = %.3f' % (y.mean(), y.std(), y.var())
+    plot, below, right = (_inches(ax, a.get_window_extent()) for a in (ax, histx, histy))
+    assert below.y1 < plot.y0 and right.x0 > plot.x1  # drawn outside the plot, no room is reserved
+    plt.close('all')
+
+
 def test_cross_plot_follows_the_style_and_the_parameters():
     """The figure size comes from the plot style, and the colours and point size from gs.Parameters."""
     x = np.arange(10.)
@@ -1721,6 +1763,11 @@ def test_cross_plot_refuses_limits_that_do_not_increase(kw):
     with pytest.raises(ValueError, match='must be increasing'):
         gs.cross_plot(x, y, mc='C0', **kw)
     assert len(plt.get_fignums()) == 0
+
+
+def _inches(ax, box):
+    """The bounding box of an artist, in inches from the lower left corner of the figure."""
+    return box.transformed(ax.figure.dpi_scale_trans.inverted())
 
 
 def test_cross_plot_stat_fontsize_is_separate_from_fontsize():
