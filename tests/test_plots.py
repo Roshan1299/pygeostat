@@ -2776,3 +2776,27 @@ def test_cross_plot_alpha_legend_45_line_and_statistics_box_arguments():
     assert {p.get_alpha() for p in ax.histx.patches + ax.histy.patches} == {0.3}
     assert gs.cross_plot(x, y, stat_bbox=dict(facecolor='yellow')).texts[0].get_bbox_patch().get_facecolor() == (1.0, 1.0, 0.0, 0.75)
     plt.close('all')
+
+
+def test_scatter_plot_3d_edge_drop_line_colourbar_legend_statistics_and_tick_arguments():
+    """edge_lw, drop_kws, cbar_kws, legend_kws, stat_xy and nticks replace the values that were fixed in the code; the
+    defaults are unchanged."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+    plt.close('all')
+    data = _scatter_3d_data().dropna()
+    kwargs = dict(c='d', cat='k', drop_lines=True, stat_blk='minimal')
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', **kwargs)
+    drop = [c for c in ax.collections if isinstance(c, Line3DCollection)][0]
+    assert drop.get_linewidths()[0] == 0.4 and ax.collections[0].get_linewidths()[0] == 0.4
+    assert not ax.get_legend().get_frame_on() and ax.texts[0].xy == (0.98, 0.98)
+    bar_height = ax.figure.axes[-1].get_position().height
+    default_ticks = len(ax.get_xticks())
+    plt.close('all')
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', edge_lw=1.5, drop_kws=dict(linewidths=2), cbar_kws=dict(shrink=1.0),
+                            legend_kws=dict(frameon=True), stat_xy=(0.5, 0.9), nticks=2, **kwargs)
+    drop = [c for c in ax.collections if isinstance(c, Line3DCollection)][0]
+    assert drop.get_linewidths()[0] == 2 and ax.collections[0].get_linewidths()[0] == 1.5
+    assert ax.get_legend().get_frame_on() and ax.texts[0].xy == (0.5, 0.9)
+    assert ax.figure.axes[-1].get_position().height > bar_height
+    assert len(ax.get_xticks()) < default_ticks
+    plt.close('all')

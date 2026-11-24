@@ -60,7 +60,8 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
                     alpha=None, cmap=None, clim=None, cbar=True, drop_lines=False, xlabel=None,
                     ylabel=None, zlabel=None, title=None, labels=None,
                     elev=25, azim=-60, grid=True, ticks=None, fontsize=None, xlim=None, ylim=None, zlim=None,
-                    logx=False, logy=False, logz=False, stat_blk=None, stat_fontsize=None, background=None, figsize=None, ax=None, plot_style=None,
+                    logx=False, logy=False, logz=False, stat_blk=None, stat_fontsize=None, background=None, figsize=None, ax=None, edge_lw=0.4, drop_kws=None,
+                    cbar_kws=None, legend_kws=None, stat_xy=(0.98, 0.98), nticks=5, plot_style=None,
                     custom_style=None, output_file=None, **kwargs):
     """
     Plot three variables of a data set against each other in a 3D scatter plot, for example the gold,
@@ -126,6 +127,15 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
             If None, ``gs.Parameters['plotting.stat_fontsize']``, or 0.75 if that is None too
         background (color): colour of the three walls behind the points, for example ``'lightgrey'`` or
             ``'white'``. The style's if None
+        edge_lw (float): width of the edge of the points. Default: 0.4
+        drop_kws (dict): arguments for the drop lines that replace the defaults (``colors='0.55'``,
+            ``linewidths=0.4``, ``alpha=0.6`` and ``zorder=0``)
+        cbar_kws (dict): arguments for ``fig.colorbar`` that replace the defaults (``shrink=0.6`` and ``pad=0.12``)
+        legend_kws (dict): arguments for ``ax.legend`` that replace the defaults (``loc='upper left'``, the title and
+            the font sizes)
+        stat_xy (tuple): position of the statistics in axes coordinates, the upper right corner of the first
+            block. Default: (0.98, 0.98)
+        nticks (int): the most ticks on each axis. Default: 5
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.scatter_plot_3d.figsize']``
         ax (ax): Matplotlib 3D axis to plot on (made with ``projection='3d'``)
@@ -257,7 +267,7 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     handles = []
     for i, (value, rows) in enumerate(groups):
         marker = markers[i] if cat is not None and cat_as in ('shape', 'both') else 'o'
-        style = dict(marker=marker, s=s, alpha=alpha, edgecolors=edge, linewidths=0.4)
+        style = dict(marker=marker, s=s, alpha=alpha, edgecolors=edge, linewidths=edge_lw)
         by_color = cat is not None and cat_as in ('color', 'both')
         if colour_var:
             points = ax.scatter(rows[x], rows[y], rows[z], c=rows[colour_var], cmap=cmap, norm=norm,
@@ -267,7 +277,7 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
             points = ax.scatter(rows[x], rows[y], rows[z], color=colour, **style)
         if cat is not None:
             handles.append(Line2D([], [], ls='', marker=marker, mfc=colors[i] if by_color else (c if colour_var is None and c is not None else shape_color),
-                                  mec=edge, mew=0.4, label=_name(value)))
+                                  mec=edge, mew=edge_lw, label=_name(value)))
     for name, lim, setter, log in (('xlim', xlim, ax.set_xlim, logx), ('ylim', ylim, ax.set_ylim, logy),
                                    ('zlim', zlim, ax.set_zlim, logz)):
         if lim is not None:
@@ -277,19 +287,20 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     if drop_lines:
         floor = ax.get_zlim()[0]
         ax.add_collection3d(Line3DCollection([((px, py, floor), (px, py, pz)) for px, py, pz in
-                                              zip(table[x], table[y], table[z])], colors='0.55', linewidths=0.4,
-                                             alpha=0.6, zorder=0), autolim=False)  # the floor stays where it is
+                                              zip(table[x], table[y], table[z])],
+                                             **dict(dict(colors='0.55', linewidths=0.4, alpha=0.6, zorder=0),
+                                                    **(drop_kws or {}))), autolim=False)  # the floor stays where it is
     if colour_var and cbar:
-        colorbar = fig.colorbar(points, ax=ax, shrink=0.6, pad=0.12)
+        colorbar = fig.colorbar(points, ax=ax, **dict(dict(shrink=0.6, pad=0.12), **(cbar_kws or {})))
         colorbar.set_label(colour_var, fontsize=size)
         colorbar.ax.tick_params(labelsize=size)
     if handles:
         # the title as large as the entries
-        ax.legend(handles=handles, title=None if several else cat, loc='upper left', fontsize=size,
-                  title_fontsize=size)
+        ax.legend(handles=handles, **dict(dict(title=None if several else cat, loc='upper left', fontsize=size,
+                                               title_fontsize=size), **(legend_kws or {})))
     # Few ticks, so that the labels of a corner do not run into each other
     for axis, name, label in zip((ax.xaxis, ax.yaxis, ax.zaxis), axes, (xlabel, ylabel, zlabel)):
-        axis.set_major_locator(MaxNLocator(nbins=5))
+        axis.set_major_locator(MaxNLocator(nbins=nticks))
         axis.labelpad = 6
         axis.set_label_text(name if label is None else label, fontsize=size)
     for axis, log, limits in zip((ax.xaxis, ax.yaxis, ax.zaxis), logs, (ax.get_xlim(), ax.get_ylim(), ax.get_zlim())):
@@ -306,7 +317,7 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         offset = 0
         for block, color in blocks:  # the first data set on top
             lines = _stat_lines(block, stats_on)
-            ax.annotate('\n'.join(lines), (0.98, 0.98), xycoords='axes fraction', xytext=(0, -offset),
+            ax.annotate('\n'.join(lines), stat_xy, xycoords='axes fraction', xytext=(0, -offset),
                         textcoords='offset points', ha='right', va='top', fontsize=stat_size, color=color)
             offset += (len(lines) + 0.5) * stat_size * 1.3
     if title is not None:
