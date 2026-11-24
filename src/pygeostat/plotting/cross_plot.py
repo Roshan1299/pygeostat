@@ -21,6 +21,14 @@ _STAT_NAMES = ['ndat', 'rho', 'rho_s', 'mean', 'std', 'var']
 _STAT_SETS = {'all': ['ndat', 'rho', 'rho_s', 'mean', 'std'], 'minimal': ['rho']}
 
 
+def _margin(lim, log=False, fraction=0.03):
+    """The limits ``(lower, upper)`` widened by a fraction of their range (of their ratio on a log axis)"""
+    if log:
+        factor = (lim[1] / lim[0]) ** fraction
+        return lim[0] / factor, lim[1] * factor
+    return lim[0] - fraction * (lim[1] - lim[0]), lim[1] + fraction * (lim[1] - lim[0])
+
+
 @set_plot_style
 def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, mc=None, ms=None,
                cmap=None, clim=None, log_color=False, cbar=False, cbar_label=None, hist_color=None, label_size=None,
@@ -69,7 +77,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             of their points, except a histogram of values that both sets share, which is drawn once in this color
         label_size (float): font size of the axis labels. If None, the one of the tick labels
         line45 (bool): draw the 45 degree line (x = y) and, if ``lim`` is None, use the same limits on both
-            axes, to compare an estimate with the true values
+            axes (the range of all the values, plus a 3 percent margin so that the extreme points are not cut
+            in half), to compare an estimate with the true values
         stat_blk (str or list): statistics to write. A preset, ``'all'`` (the number of pairs ``'ndat'``, the
             Pearson and Spearman correlation coefficients ``'rho'`` and ``'rho_s'``, and the ``'mean'`` and
             ``'std'`` of each variable) or ``'minimal'`` (``'rho'``), or a list of those names (``'var'`` is also
@@ -185,7 +194,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     for name, log, v in (('x', logx, xs), ('y', logy, ys)):
         if log and not (v > 0).all():
             raise ValueError("The log scale of %s needs values above zero" % name)
-    if line45 and lim is None:
+    data_lim = line45 and lim is None
+    if data_lim:
         lim = (min(xs.min(), ys.min()), max(xs.max(), ys.max()))
     xr = lim if xlim is None else xlim
     yr = lim if ylim is None else ylim
@@ -233,12 +243,15 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     if logy:
         ax.yaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))
         ax.yaxis.set_minor_formatter(NullFormatter())
+    # limits that are the range of the data (for the 45 degree line) get a margin, so that the extreme points are not cut in half
     if xr is not None:
-        ax.set_xlim(xr)
+        ax.set_xlim(_margin(xr, logx) if data_lim and xlim is None else xr)
     if yr is not None:
-        ax.set_ylim(yr)
+        ax.set_ylim(_margin(yr, logy) if data_lim and ylim is None else yr)
     if line45:
-        ax.plot(lim, lim, **dict(dict(color='k', lw=1, ls='--', zorder=1), **(line45_kws or {})))
+        # across the whole plot: the limits that the margin widened, or the ones given
+        line_lim = (max(ax.get_xlim()[0], ax.get_ylim()[0]), min(ax.get_xlim()[1], ax.get_ylim()[1])) if data_lim else lim
+        ax.plot(line_lim, line_lim, **dict(dict(color='k', lw=1, ls='--', zorder=1), **(line45_kws or {})))
     if label_size is not None:
         ax.xaxis.label.set_size(label_size)
         ax.yaxis.label.set_size(label_size)

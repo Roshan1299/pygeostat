@@ -1636,6 +1636,29 @@ def test_cross_plot_colours_the_points_by_density_by_default():
     plt.close('all')
 
 
+def test_cross_plot_45_degree_limits_leave_a_margin_so_that_the_extreme_points_are_not_cut():
+    """Limits that are the range of the data would put the lowest and highest points on the edge of the plot, where half of
+    their marker is clipped. Limits that the user gives are kept as they are."""
+    rng = np.random.default_rng(4)
+    x, y = rng.normal(size=50), rng.normal(size=50)
+    ax = gs.cross_plot(x, y, line45=True)
+    low, high = min(x.min(), y.min()), max(x.max(), y.max())
+    np.testing.assert_allclose(ax.get_xlim(), (low - 0.03 * (high - low), high + 0.03 * (high - low)))
+    assert ax.get_ylim() == ax.get_xlim()
+    assert ax.get_xlim()[0] < low and ax.get_xlim()[1] > high
+    np.testing.assert_allclose(ax.lines[0].get_xdata(), ax.get_xlim())  # the 45 degree line still runs from corner to corner
+    np.testing.assert_allclose(ax.lines[0].get_ydata(), ax.get_xlim())
+    # on log axes the margin is a factor
+    ax = gs.cross_plot(np.exp(x), np.exp(y), line45=True, logx=True, logy=True)
+    np.testing.assert_allclose(ax.get_xlim(), (np.exp(low - 0.03 * (high - low)), np.exp(high + 0.03 * (high - low))))
+    # limits given by the user are not widened
+    ax = gs.cross_plot(x, y, line45=True, lim=(-3, 3))
+    assert ax.get_xlim() == ax.get_ylim() == (-3, 3)
+    ax = gs.cross_plot(x, y, line45=True, xlim=(-4, 4))
+    assert ax.get_xlim() == (-4, 4) and ax.get_ylim()[0] < low
+    plt.close('all')
+
+
 def test_cross_plot_colours_the_points_by_values_with_a_colour_bar():
     x = np.arange(6.)
     y = np.array([1., 3., 2., 5., 4., 6.])
@@ -1750,7 +1773,8 @@ def test_cross_plot_45_degree_line_and_log_colours():
     x = np.array([0., 1., 2., 3., 4.])
     y = np.array([0., 3., 1., 4., 8.])
     ax = gs.cross_plot(x, y, line45=True, mc='red')
-    assert ax.get_xlim() == ax.get_ylim() == (0., 8.)  # the same limits on both axes
+    np.testing.assert_allclose(ax.get_xlim(), (-0.24, 8.24))  # the same limits on both axes: the data range and a margin
+    assert ax.get_xlim() == ax.get_ylim()
     line = ax.lines[0]
     np.testing.assert_allclose(line.get_xdata(), line.get_ydata())
     assert not gs.cross_plot(x, y, mc='red').lines  # no line by default
