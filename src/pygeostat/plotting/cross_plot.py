@@ -9,6 +9,7 @@
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
+from matplotlib.ticker import LogLocator, NullFormatter, StrMethodFormatter
 from .utils import get_label, format_plot, setup_plot, _set_stat_fontsize, _stat_names
 from ..pygeostat_parameters import Parameters
 from .export_image import export_image
@@ -23,8 +24,8 @@ _STAT_SETS = {'all': ['ndat', 'rho', 'mean', 'var'], 'minimal': ['rho']}
 def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, mc=None, ms=None,
                cmap=None, clim=None, log_color=False, cbar=False, cbar_label=None, hist_color=None, label_size=None,
                line45=False, stat_blk='all', figsize=None, ax=None, grid=None,
-               axis_xy=None, x2=None, y2=None, mc2='C1', label=None, label2=None,
-               stat_fontsize=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
+               axis_xy=None, x2=None, y2=None, mc2='C1', label=None, label2=None, logx=False, logy=False,
+               log_counts=False, stat_fontsize=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot any variable ``y`` against any other variable ``x`` as points, with the histogram of ``x`` below and the histogram of ``y``
     on the left, as in the cross plots of the Geostatistics Lessons. The correlation coefficient is
@@ -83,6 +84,9 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             the mean and variance of each are written in its colour. ``mc`` must then be a single colour (``'C0'`` if None), not ``'kde'`` or values
         mc2 (str): matplotlib color of the second data set
         label, label2 (str): legend labels of the two data sets (default ``'Data 1'`` and ``'Data 2'``)
+        logx, logy (bool): log scale of the x or y axis, for the points and the histograms. The values must be
+            above zero, and the histogram bins are equal in log scale
+        log_counts (bool): log scale for the counts of the two histograms (the axes without tick labels)
         stat_fontsize (float): font size of the statistics (correlation, mean and variance). If None,
             ``gs.Parameters['plotting.stat_fontsize']``, and it does not follow ``fontsize``
         plot_style (str): Use a predefined set of matplotlib plotting parameters
@@ -155,18 +159,23 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         raise ValueError("log_color needs at least one value above zero")
     xs = x if x2 is None else pd.concat([x, x2])
     ys = y if y2 is None else pd.concat([y, y2])
+    for name, log, v in (('x', logx, xs), ('y', logy, ys)):
+        if log and not (v > 0).all():
+            raise ValueError("The log scale of %s needs values above zero" % name)
     if line45 and lim is None:
         lim = (min(xs.min(), ys.min()), max(xs.max(), ys.max()))
     xr = yr = lim
-    for name, r in (('x', xr), ('y', yr)):
+    for name, log, r, v in (('x', logx, xr, xs), ('y', logy, yr, ys)):
         if r is not None and len(r) != 2:
             raise ValueError("%slim must be (lower, upper), not %s" % (name, r))
         if r is not None and not r[0] < r[1]:
             raise ValueError("%slim must be increasing, (lower, upper), not %s" % (name, r))
+        if log and (r if r is not None else (v.min(),))[0] <= 0:
+            raise ValueError("The lower limit of a log scale must be above zero")
     stat_size = _set_stat_fontsize(stat_fontsize)
     stats_on = _stat_names(stat_blk, _STAT_SETS, _STAT_NAMES)
-    edges = [np.linspace(*(r if r is not None else (v.min(), v.max())), nbins + 1)
-             for r, v in ((xr, xs), (yr, ys))]
+    edges = [(np.geomspace if log else np.linspace)(*(r if r is not None else (v.min(), v.max())), nbins + 1)
+             for log, r, v in ((logx, xr, xs), (logy, yr, ys))]
     cmap = Parameters['plotting.scatter_plot.cmap'] if cmap is None else cmap
     ms = Parameters['plotting.cross_plot.s'] if ms is None else ms
     hist_color = Parameters['plotting.cross_plot.histcolor'] if hist_color is None else hist_color
@@ -175,6 +184,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     if new_figure:
         ax.set_axes_locator(None)
         ax.set_position([0.28, 0.28, 0.60 if cbar and values is not None else 0.67, 0.67])
+    fmtstr = '{{x:.{}g}}'.format(Parameters.get('plotting.sigfigs') or 3)  # as format_plot, for log axes
     histx = ax.inset_axes([0, -0.28, 1, 0.22], sharex=ax)
     histy = ax.inset_axes([-0.28, 0, 0.22, 1], sharey=ax)
     if two:
@@ -200,13 +210,23 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
                             cmap=cmap, vmin=vmin, vmax=vmax, norm=norm)
         if cbar:
             colorbar = fig.colorbar(points, cax=ax.inset_axes([1.03, 0, 0.035, 1]))
+    if logx:
+        ax.set_xscale('log')
+        histx.xaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))  # a few more marks than the decades
+        histx.xaxis.set_major_formatter(StrMethodFormatter(fmtstr))
+        histx.xaxis.set_minor_formatter(NullFormatter())
+    if logy:
+        ax.set_yscale('log')
+        histy.yaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))  # a few more marks than the decades
+        histy.yaxis.set_major_formatter(StrMethodFormatter(fmtstr))
+        histy.yaxis.set_minor_formatter(NullFormatter())
     if xr is not None:
         ax.set_xlim(xr)
     if yr is not None:
         ax.set_ylim(yr)
     format_plot(ax, title=title, grid=grid, axis_xy=axis_xy)
     ax.tick_params(labelleft=False, labelbottom=False)
-    bars = dict(alpha=0.6) if two else dict()
+    bars = dict(alpha=0.6, log=log_counts) if two else dict(log=log_counts)
     histx.hist(x, bins=edges[0], color=mc if two else hist_color, **bars)
     histy.hist(y, bins=edges[1], color=mc if two else hist_color, orientation='horizontal', **bars)
     if two:
@@ -215,7 +235,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     histy.invert_xaxis()
     if line45:
         ax.plot(lim, lim, color='k', lw=1, ls='--', zorder=1)
-    histx.set_ylim(top=histx.get_ylim()[1] * 1.6)  # room above the bars for the statistics
+    histx.set_ylim(top=histx.get_ylim()[1] * (8.0 if log_counts else 1.6))  # room above the bars for the statistics
     histx.set_yticks([])
     histy.set_xticks([])
     size = histx.xaxis.get_ticklabels()[0].get_size() if label_size is None else label_size
@@ -230,8 +250,10 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     if corner_stats and not two:
         # the corner with the fewest points under the label
         xl, yl = ax.get_xlim(), ax.get_ylim()
-        fx = (x - xl[0]) / (xl[1] - xl[0])
-        fy = (y - yl[0]) / (yl[1] - yl[0])
+        fx = ((np.log10(x) if logx else x) - (np.log10(xl[0]) if logx else xl[0])) / (
+            (np.log10(xl[1]) - np.log10(xl[0])) if logx else (xl[1] - xl[0]))
+        fy = ((np.log10(y) if logy else y) - (np.log10(yl[0]) if logy else yl[0])) / (
+            (np.log10(yl[1]) - np.log10(yl[0])) if logy else (yl[1] - yl[0]))
         corners = [(0.05, 0.95, 'left', 'top'), (0.95, 0.95, 'right', 'top'),
                    (0.05, 0.05, 'left', 'bottom'), (0.95, 0.05, 'right', 'bottom')]
 

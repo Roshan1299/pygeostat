@@ -1672,6 +1672,27 @@ def test_cross_plot_two_data_sets_errors():
     plt.close('all')
 
 
+def test_cross_plot_log_axes_and_log_counts():
+    """logx/logy put the points and the histograms on a log scale with bins equal in log; log_counts is the counts."""
+    plt.close('all')
+    x, y, _, _ = _two_sets()
+    ax = gs.cross_plot(x, y, logx=True, logy=True, nbins=4, mc='C0')
+    assert (ax.get_xscale(), ax.get_yscale()) == ('log', 'log')
+    assert (ax.histx.get_xscale(), ax.histy.get_yscale()) == ('log', 'log')  # shared with the points
+    assert ax.histx.get_yscale() == 'linear'
+    edges = np.array([p.get_x() for p in ax.histx.patches] + [ax.histx.patches[-1].get_x() + ax.histx.patches[-1].get_width()])
+    np.testing.assert_allclose(np.diff(np.log(edges)), np.diff(np.log(edges))[0])
+    plt.close('all')
+    ax = gs.cross_plot(x, y, log_counts=True, mc='C0')
+    assert (ax.histx.get_yscale(), ax.histy.get_xscale()) == ('log', 'log')
+    assert (ax.get_xscale(), ax.get_yscale()) == ('linear', 'linear')
+    plt.close('all')
+    with pytest.raises(ValueError, match='above zero'):
+        gs.cross_plot(x - 5, y, logx=True)
+    assert len(plt.get_fignums()) == 0
+    plt.close('all')
+
+
 @pytest.mark.parametrize('kw', [dict(lim=(5, 0))])
 def test_cross_plot_refuses_limits_that_do_not_increase(kw):
     """Reversed limits give a clear error, and no figure is left open."""
