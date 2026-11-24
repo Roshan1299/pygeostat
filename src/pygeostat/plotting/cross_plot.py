@@ -26,7 +26,8 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
                line45=False, stat_blk='all', figsize=None, ax=None, grid=None,
                axis_xy=None, x2=None, y2=None, mc2='C1', label=None, label2=None, logx=False, logy=False,
                log_counts=False, ticks=None, fontsize=None, stat_fontsize=None, xlim=None, ylim=None,
-               background=None, plot_style=None, custom_style=None, output_file=None, **kwargs):
+               background=None, alpha=0.6, legend_kws=None, line45_kws=None, stat_bbox=None, plot_style=None,
+               custom_style=None, output_file=None, **kwargs):
     """
     Plot any variable ``y`` against any other variable ``x`` as points, with the histogram of ``x`` below and the histogram of ``y``
     on the left, as in the cross plots of the Geostatistics Lessons. The correlation coefficient is
@@ -99,6 +100,12 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             data's if None
         background (color): colour of the plotting area of the scatter plot, for example ``'lightgrey'``
             or ``'white'``. The style's if None
+        alpha (float): opacity of the points and the bars of two data sets, from 0 (invisible) to 1. Default: 0.6
+        legend_kws (dict): arguments for ``ax.legend`` (two data sets) that replace the defaults, ``loc='best'``
+        line45_kws (dict): arguments for the 45 degree line that replace the defaults (``color='k'``, ``lw=1``,
+            ``ls='--'`` and ``zorder=1``)
+        stat_bbox (dict): arguments for the box behind the statistics on the scatter plot that replace the
+            defaults (a white box, ``facecolor='white'``, ``alpha=0.75``, ``edgecolor='none'`` and ``pad=2``)
         plot_style (str): Use a predefined set of matplotlib plotting parameters
         custom_style (dict): Alter some of the predefined parameters in the ``plot_style`` selected
         output_file (str): Output figure file name and location
@@ -203,9 +210,9 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             parts = (['n = %d' % len(a)] if 'ndat' in stats_on else []) + (
                 [r'$\rho = %.3f$' % np.corrcoef(a, b)[0, 1]] if 'rho' in stats_on else [])
             return ' (%s)' % ', '.join(parts) if parts else ''
-        ax.scatter(x, y, c=mc, s=ms, alpha=0.6, label=(label or 'Data 1') + tag(x, y))
-        ax.scatter(x2, y2, c=mc2, s=ms, alpha=0.6, label=(label2 or 'Data 2') + tag(x2, y2))
-        ax.legend(loc='best')
+        ax.scatter(x, y, c=mc, s=ms, alpha=alpha, label=(label or 'Data 1') + tag(x, y))
+        ax.scatter(x2, y2, c=mc2, s=ms, alpha=alpha, label=(label2 or 'Data 2') + tag(x2, y2))
+        ax.legend(**dict(dict(loc='best'), **(legend_kws or {})))
     elif values is None:
         points = ax.scatter(x, y, c=mc, s=ms)
     else:
@@ -237,7 +244,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         ax.set_ylim(yr)
     format_plot(ax, title=title, grid=grid, axis_xy=axis_xy)
     ax.tick_params(labelleft=False, labelbottom=False)
-    bars = dict(alpha=0.6, log=log_counts) if two else dict(log=log_counts)
+    bars = dict(alpha=alpha, log=log_counts) if two else dict(log=log_counts)
     histx.hist(x, bins=edges[0], color=mc if two else hist_color, **bars)
     histy.hist(y, bins=edges[1], color=mc if two else hist_color, orientation='horizontal', **bars)
     if two:
@@ -245,7 +252,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         histy.hist(y2, bins=edges[1], color=mc2, orientation='horizontal', **bars)
     histy.invert_xaxis()
     if line45:
-        ax.plot(lim, lim, color='k', lw=1, ls='--', zorder=1)
+        ax.plot(lim, lim, **dict(dict(color='k', lw=1, ls='--', zorder=1), **(line45_kws or {})))
     histx.set_ylim(top=histx.get_ylim()[1] * (8.0 if log_counts else 1.6))  # room above the bars for the statistics
     histx.set_yticks([])
     histy.set_xticks([])
@@ -255,7 +262,7 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     if values is not None and cbar:
         colorbar.set_label(cbar_label, fontsize=size)
     # a light background keeps the statistics readable where they are over the points or the bars
-    box = dict(facecolor='white', alpha=0.75, edgecolor='none', pad=2)
+    box = dict(dict(facecolor='white', alpha=0.75, edgecolor='none', pad=2), **(stat_bbox or {}))
     corner_stats = [t for n, t in (('ndat', 'n = %d' % len(x)), ('rho', r'$\rho = %.3f$' % np.corrcoef(x, y)[0, 1]))
                     if n in stats_on]
     if corner_stats and not two:

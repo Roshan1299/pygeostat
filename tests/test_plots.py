@@ -2241,3 +2241,24 @@ def test_swath_plot_label_bar_width_spacing_and_margin_arguments():
     axes = gs.swath_plot(_swath_data(), ['a', 'b'], orient=['x', 'y'], hspace=0.6, **kwargs)
     assert axes[0].figure.subplotpars.hspace == 0.6
     plt.close('all')
+
+
+def test_cross_plot_alpha_legend_45_line_and_statistics_box_arguments():
+    """alpha, legend_kws, line45_kws and stat_bbox replace the values that were fixed in the code; the defaults are
+    unchanged."""
+    plt.close('all')
+    x, y, x2, y2 = _two_sets()
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2, line45=True)
+    line = [l for l in ax.lines if l.get_linestyle() == '--'][0]
+    assert (line.get_color(), line.get_linewidth(), line.get_zorder()) == ('k', 1, 1)
+    assert [c.get_alpha() for c in ax.collections] == [0.6, 0.6] and not ax.get_legend().get_frame_on()
+    assert gs.cross_plot(x, y).texts[0].get_bbox_patch().get_facecolor() == (1.0, 1.0, 1.0, 0.75)
+    plt.close('all')
+    ax = gs.cross_plot(x, y, x2=x2, y2=y2, line45=True, alpha=0.3, legend_kws=dict(frameon=True),
+                       line45_kws=dict(color='r', lw=3))
+    line = [l for l in ax.lines if l.get_linestyle() == '--'][0]
+    assert (line.get_color(), line.get_linewidth(), line.get_zorder()) == ('r', 3, 1)
+    assert [c.get_alpha() for c in ax.collections] == [0.3, 0.3] and ax.get_legend().get_frame_on()
+    assert {p.get_alpha() for p in ax.histx.patches + ax.histy.patches} == {0.3}
+    assert gs.cross_plot(x, y, stat_bbox=dict(facecolor='yellow')).texts[0].get_bbox_patch().get_facecolor() == (1.0, 1.0, 0.0, 0.75)
+    plt.close('all')
