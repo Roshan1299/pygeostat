@@ -15,6 +15,7 @@ from .loadings_plot import loadings_plot
 from .validation_plot import validation_plot
 from .swath_plot import swath_plot
 from .cross_plot import cross_plot
+from .clip_plot import convex_hull, convex_hull_3d
 from .correlation_matrix_plot import correlation_matrix_plot
 from .variogram_plot import  variogram_plot
 from .variogram_plot_simulation import variogram_plot_simulation

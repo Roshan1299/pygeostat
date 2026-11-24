@@ -1777,6 +1777,114 @@ def test_cross_plot_stat_blk_chooses_the_statistics():
         gs.cross_plot(x, y, mc='C0', stat_blk=['median'])
     assert len(plt.get_fignums()) == 0
 
+
+def _hull_by_brute_force(xy):
+    """The corners of the convex hull found without a hull routine: a pair of points is an edge of the
+    hull when all the other points are on one side of the line through them (n ** 3 steps, small sets)"""
+    corners = set()
+    for i in range(len(xy)):
+        for j in range(len(xy)):
+            if i == j or (xy[i] == xy[j]).all():
+                continue
+            d = xy[j] - xy[i]
+            side = d[0] * (xy[:, 1] - xy[i, 1]) - d[1] * (xy[:, 0] - xy[i, 0])
+            if (side <= 1e-12 * np.abs(d).max()).all() and (side[np.abs(side) > 1e-12 * np.abs(d).max()] < 0).all():
+                on_line = np.abs(side) <= 1e-12 * np.abs(d).max()
+                t = ((xy - xy[i]) @ d) / (d @ d)
+                if not (on_line & ((t < -1e-12) | (t > 1 + 1e-12))).any():  # no point on the line outside the edge
+                    corners.update((tuple(xy[i]), tuple(xy[j])))
+    return corners
+
+
+@pytest.mark.parametrize('name, x, y', [('cluster', 'Xlocation', 'Ylocation'), ('oilsands', 'East', 'North'),
+                                        ('point2d_ind', 'X', 'Y')])
+def test_convex_hull_of_the_example_data_sets(name, x, y):
+    """The hull of a data set is a closed counter-clockwise polygon of data points that holds every point,
+    with the same corners as an independent search, and the same area as scipy."""
+    from scipy.spatial import ConvexHull
+    data = gs.ExampleData(name).data[[x, y]].drop_duplicates().sample(60, random_state=0)
+    hull = gs.convex_hull(data[x], data[y])
+    xy = data.to_numpy()
+    assert (hull[0] == hull[-1]).all()
+    assert {tuple(c) for c in hull[:-1]} == _hull_by_brute_force(xy)
+    assert {tuple(c) for c in hull[:-1]} <= {tuple(p) for p in xy}
+    area = 0.5 * np.sum(hull[:-1, 0] * hull[1:, 1] - hull[1:, 0] * hull[:-1, 1])
+    assert area > 0  # counter-clockwise
+    assert area == pytest.approx(ConvexHull(xy).volume)
+    for start, end in zip(hull[:-1], hull[1:]):  # every point is on the left of every edge, or on it
+        side = (end[0] - start[0]) * (xy[:, 1] - start[1]) - (end[1] - start[1]) * (xy[:, 0] - start[0])
+        assert (side >= -1e-9 * np.abs(xy).max() ** 2).all()
+    plt.close('all')
+
+
+def test_convex_hull_inputs_duplicates_nan_and_large_coordinates():
+    rng = np.random.default_rng(5)
+    xy = rng.uniform(0, 100, (40, 2))
+    expected = {tuple(c) for c in gs.convex_hull(xy[:, 0], xy[:, 1])[:-1]}
+    for x, y in ((list(xy[:, 0]), list(xy[:, 1])), (pd.Series(xy[:, 0]), pd.Series(xy[:, 1])),
+                 (pd.DataFrame(xy[:, :1]), pd.DataFrame(xy[:, 1:]))):
+        assert {tuple(c) for c in gs.convex_hull(x, y)[:-1]} == expected
+    # repeated locations and a pair with a NaN change nothing
+    x = np.append(np.tile(xy[:, 0], 2), np.nan)
+    y = np.append(np.tile(xy[:, 1], 2), 5.0)
+    assert {tuple(c) for c in gs.convex_hull(x, y)[:-1]} == expected
+    # a set moved far away (UTM-size coordinates) and turned has the moved and turned hull
+    theta = 0.7
+    turned = xy @ np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]]) + [5.5e5, 6.1e6]
+    moved = {tuple(np.round(c, 6)) for c in gs.convex_hull(turned[:, 0], turned[:, 1])[:-1]}
+    wanted = {tuple(np.round(np.array(c) @ np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]]) + [5.5e5, 6.1e6], 6))
+              for c in expected}
+    assert moved == wanted
+    # three points make a triangle; four on a line have no hull
+    assert len(gs.convex_hull([0, 1, 0], [0, 0, 1])) == 4
+    with pytest.raises(ValueError, match='one line'):
+        gs.convex_hull([0, 1, 2, 3], [1, 3, 5, 7])
+
+
+def _signed_volume(vertices, faces):
+    """Volume of a closed surface from its triangles, positive when they face outwards"""
+    a, b, c = (vertices[faces[:, i]] for i in range(3))
+    return np.sum(np.einsum('ij,ij->i', a, np.cross(b, c))) / 6
+
+
+def test_convex_hull_3d_of_a_cube_with_points_inside():
+    corners = np.array([[i, j, k] for i in (0, 2) for j in (0, 2) for k in (0, 2)], dtype=float)
+    inside = np.random.default_rng(0).uniform(0.1, 1.9, size=(50, 3))
+    xyz = np.vstack([inside, corners])
+    vertices, faces = gs.convex_hull_3d(*xyz.T)
+    assert {tuple(v) for v in vertices} == {tuple(c) for c in corners}
+    assert faces.shape == (12, 3)  # two triangles for each of the six sides
+    assert _signed_volume(vertices, faces) == pytest.approx(8.0)  # positive: the triangles face outwards
+
+
+def test_convex_hull_3d_has_exactly_the_points_on_a_sphere_as_corners_and_faces_that_enclose_every_point():
+    from scipy.spatial import ConvexHull
+    rng = np.random.default_rng(1)
+    sphere = rng.normal(size=(40, 3))
+    sphere = 10 * sphere / np.linalg.norm(sphere, axis=1)[:, None] + [100.0, 200.0, 300.0]
+    inside = [100.0, 200.0, 300.0] + rng.uniform(-4, 4, size=(100, 3))  # within 7 of the centre, the sphere has radius 10
+    xyz = np.vstack([inside, sphere])
+    rng.shuffle(xyz)
+    vertices, faces = gs.convex_hull_3d(*xyz.T)
+    assert {tuple(v) for v in vertices} == {tuple(p) for p in sphere}  # every point on the sphere, none inside
+    assert _signed_volume(vertices, faces) == pytest.approx(ConvexHull(xyz).volume)
+    corners = vertices[faces]
+    normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    for normal, corner in zip(normals, corners[:, 0]):  # no point is beyond any face
+        assert ((xyz - corner) @ normal <= 1e-6 * np.linalg.norm(normal)).all()
+
+
+def test_convex_hull_3d_inputs_nan_and_errors():
+    cube = np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)], dtype=float)
+    vertices, faces = gs.convex_hull_3d(list(cube[:, 0]) + [np.nan], list(cube[:, 1]) + [5.0], list(cube[:, 2]) + [5.0])
+    assert len(vertices) == 8 and len(faces) == 12  # the location with a NaN is left out
+    with pytest.raises(ValueError, match='four'):
+        gs.convex_hull_3d([0, 1, 0], [0, 0, 1], [0, 0, 0])
+    with pytest.raises(ValueError, match='plane'):
+        gs.convex_hull_3d([0, 1, 0, 1], [0, 0, 1, 1], [5, 5, 5, 5])  # all at the same elevation
+    with pytest.raises(ValueError, match='plane'):
+        gs.convex_hull_3d([0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3])  # on one line
+
 def _gt_twin(ax):
     """The axis of the grades, which shares the x axis with the one of the tonnages"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
