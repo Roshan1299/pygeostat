@@ -2811,6 +2811,18 @@ def test_scatter_plot_3d_colour_by_category_with_many_categories_and_errors():
     assert plt.get_fignums() == []
 
 
+def test_scatter_plot_3d_legend_stays_above_the_points_of_many_categories():
+    """matplotlib sets the zorder of each 3D collection from its depth, so with several categories some of them are
+    drawn over a default legend and hide its entries."""
+    rng = np.random.default_rng(0)
+    data = pd.DataFrame(rng.normal(size=(60, 3)), columns=['a', 'b', 'c']).assign(k=np.arange(60) % 6)
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', cat='k')
+    ax.figure.canvas.draw()
+    assert max(collection.get_zorder() for collection in ax.collections) > 5  # depth zorders pass the default legend's
+    assert ax.get_legend().get_zorder() > max(collection.get_zorder() for collection in ax.collections)
+    plt.close('all')
+
+
 def test_scatter_plot_3d_drop_lines_reach_the_floor():
     from mpl_toolkits.mplot3d.art3d import Line3DCollection
     data = _scatter_3d_data()

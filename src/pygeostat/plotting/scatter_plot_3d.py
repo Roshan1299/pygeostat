@@ -296,8 +296,10 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         colorbar.ax.tick_params(labelsize=size)
     if handles:
         # the title as large as the entries
-        ax.legend(handles=handles, **dict(dict(title=None if several else cat, loc='upper left', fontsize=size,
-                                               title_fontsize=size), **(legend_kws or {})))
+        legend = ax.legend(handles=handles, **dict(dict(title=None if several else cat, loc='upper left', fontsize=size,
+                                                         title_fontsize=size), **(legend_kws or {})))
+        # matplotlib gives each 3D collection a zorder from its depth, which can pass the legend's and hide its entries
+        legend.set_zorder(100)
     # Few ticks, so that the labels of a corner do not run into each other
     for axis, name, label in zip((ax.xaxis, ax.yaxis, ax.zaxis), axes, (xlabel, ylabel, zlabel)):
         axis.set_major_locator(MaxNLocator(nbins=nticks))
