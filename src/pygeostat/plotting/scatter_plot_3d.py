@@ -9,13 +9,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize, is_color_like
+from matplotlib.colors import Normalize, is_color_like, to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedFormatter, FixedLocator, MaxNLocator
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from .export_image import export_image
 from .set_style import set_plot_style
-from .utils import _set_stat_fontsize, _stat_names
+from .utils import _format_axes, _set_stat_fontsize, _stat_names
 from ..pygeostat_parameters import Parameters
 
 _DATASET = '_dataset'  # the column that tells the data sets of a list apart
@@ -59,9 +59,9 @@ def _stat_lines(values, stats_on):
 def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, colors=None, s=None,
                     alpha=None, cmap=None, clim=None, cbar=True, drop_lines=False, xlabel=None,
                     ylabel=None, zlabel=None, title=None, labels=None,
-                    elev=25, azim=-60, grid=True, xlim=None, ylim=None, zlim=None,
-                    logx=False, logy=False, logz=False, stat_blk=None, stat_fontsize=None, figsize=None, ax=None,
-                    plot_style=None, custom_style=None, output_file=None, **kwargs):
+                    elev=25, azim=-60, grid=True, ticks=None, fontsize=None, xlim=None, ylim=None, zlim=None,
+                    logx=False, logy=False, logz=False, stat_blk=None, stat_fontsize=None, background=None, figsize=None, ax=None, plot_style=None,
+                    custom_style=None, output_file=None, **kwargs):
     """
     Plot three variables of a data set against each other in a 3D scatter plot, for example the gold,
     copper and silver grades of the same samples. The variables are the axes, not the coordinates of
@@ -109,6 +109,11 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         elev (float): elevation of the viewing angle in degrees
         azim (float): azimuth of the viewing angle in degrees
         grid (bool): plots the major grid lines if True
+        ticks (bool, float or dict): tick marks on the three axes. ``True`` draws them, ``False`` removes
+            them, a number sets their length, a dictionary is passed to ``ax.tick_params``. If None,
+            ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number), or a
+            dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's sizes if None
         xlim, ylim, zlim (tuple): ``(lower, upper)`` limits of an axis. The range of the data if None
         logx, logy, logz (bool): log scale for an axis, for a very skewed variable. The values must be above
             zero. The axis is drawn as the log10 of the values, with ticks at 1, 2 and 5 times the powers of ten,
@@ -119,6 +124,8 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
             ``'minimal'`` (``'rho'``), or a list of those names. ``False``, ``None`` or ``'none'`` writes none
         stat_fontsize (float): font size of the statistics, as in the other plots (below 1, a fraction of the font size).
             If None, ``gs.Parameters['plotting.stat_fontsize']``, or 0.75 if that is None too
+        background (color): colour of the three walls behind the points, for example ``'lightgrey'`` or
+            ``'white'``. The style's if None
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.scatter_plot_3d.figsize']``
         ax (ax): Matplotlib 3D axis to plot on (made with ``projection='3d'``)
@@ -306,6 +313,11 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         ax.set_title(title)
     ax.view_init(elev=elev, azim=azim)
     ax.grid(bool(grid))
+    _format_axes(ax, grid=bool(grid), ticks=ticks, fontsize=fontsize)
+    if background is not None:
+        ax.set_facecolor(background)
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axis.set_pane_color(to_rgba(background))
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
     return ax

@@ -2505,6 +2505,26 @@ def test_scatter_plot_3d_several_data_sets_errors_leave_no_figure():
     assert len(plt.get_fignums()) == 0
 
 
+def test_scatter_plot_3d_axes_options():
+    """Ticks, font size, limits and the colour of the walls; drop lines go down to the lower z limit."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+    data = _scatter_3d_data()
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', ticks=7, fontsize={'label': 14, 'tick': 8}, xlim=(-1, 9),
+                            ylim=(-2, 20), zlim=(-5, 10), background='white', drop_lines=True)
+    ax.figure.canvas.draw()
+    assert (ax.get_xlim(), ax.get_ylim(), ax.get_zlim()) == ((-1, 9), (-2, 20), (-5, 10))
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        assert axis.get_major_ticks()[0].tick1line.get_markersize() == 7
+        assert axis.label.get_fontsize() == 14
+        assert axis.get_major_ticks()[0].label1.get_fontsize() == 8
+        assert tuple(axis.pane.get_facecolor()) == (1.0, 1.0, 1.0, 1.0)
+    lines = [c for c in ax.collections if isinstance(c, Line3DCollection)]
+    assert {s[0][2] for s in lines[0]._segments3d} == {-5}
+    with pytest.raises(ValueError, match='zlim must be'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', zlim=(1,))
+    plt.close('all')
+
+
 def test_scatter_plot_3d_log_axes():
     """A log axis shows the log10 of the values with the values as tick labels; limits are given as values."""
     plt.close('all')
