@@ -305,7 +305,7 @@ default_parameters = {
 	'plotting.swath_plot.bar_alpha': [1.0, _validate_float],
 	'plotting.cross_plot.c': ['kde', _validate_kde_or_color],
 	'plotting.cross_plot.s': [10, _validate_float],
-	'plotting.cross_plot.histcolor': ['0.5', _validate_color],
+	'plotting.cross_plot.histcolor': ['0.9', _validate_color],
 	'plotting.scatter_plot_3d.figsize': [(7, 6), _validate_list],
 	'plotting.scatter_plot.s': [None, _validate_float_or_None],
 	'plotting.scatter_plot.c': ['kde', _validate_kde_or_color],

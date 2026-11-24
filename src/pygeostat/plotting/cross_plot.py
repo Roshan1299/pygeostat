@@ -9,15 +9,16 @@
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
-from matplotlib.ticker import LogLocator, NullFormatter, StrMethodFormatter
-from .utils import get_label, format_plot, setup_plot, _set_stat_fontsize, _format_axes, _stat_names
+from scipy.stats import spearmanr
+from matplotlib.ticker import LogLocator, NullFormatter
+from .utils import get_label, format_plot, setup_plot, _set_stat_fontsize, _format_axes, _stat_names, _marginal_hists, _stat_number, _square_axes
 from ..pygeostat_parameters import Parameters
 from .export_image import export_image
 from .set_style import set_plot_style
 
 
-_STAT_NAMES = ['ndat', 'rho', 'mean', 'var']
-_STAT_SETS = {'all': ['ndat', 'rho', 'mean', 'var'], 'minimal': ['rho']}
+_STAT_NAMES = ['ndat', 'rho', 'rho_s', 'mean', 'std', 'var']
+_STAT_SETS = {'all': ['ndat', 'rho', 'rho_s', 'mean', 'std'], 'minimal': ['rho']}
 
 
 @set_plot_style
@@ -30,9 +31,10 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
                custom_style=None, output_file=None, **kwargs):
     """
     Plot any variable ``y`` against any other variable ``x`` as points, with the histogram of ``x`` below and the histogram of ``y``
-    on the left, as in the cross plots of the Geostatistics Lessons. The correlation coefficient is
-    written on the scatter plot and the mean and variance on each histogram. Pairs where either value
-    is NaN are left out.
+    to the right (the layout of Figure 9 of Castro Moreira, Costa and Deutsch, 2026). The number of pairs and the
+    correlations are written on the scatter plot, and the mean and standard deviation next to each histogram. Pairs
+    where either value is NaN are left out. On a log axis the statistics are those of the natural logarithm, which is
+    what is plotted (the correlation is then labelled ``rho_ln``).
 
     Please review the documentation of the :func:`gs.set_style()
     <pygeostat.plotting.set_style.set_style>` and :func:`gs.export_image()
@@ -63,27 +65,29 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         cbar (bool): add a colour bar when the points are colored by values or ``'kde'``
         cbar_label (str): label of the colour bar (default: the name of the values, or "Density" for ``'kde'``)
         hist_color (str): matplotlib color of the histogram bars. If None,
-            ``gs.Parameters['plotting.cross_plot.histcolor']``. Ignored with two data sets, whose
-            histograms take the color of their points
+            ``gs.Parameters['plotting.cross_plot.histcolor']``. With two data sets their histograms take the color
+            of their points, except a histogram of values that both sets share, which is drawn once in this color
         label_size (float): font size of the axis labels. If None, the one of the tick labels
         line45 (bool): draw the 45 degree line (x = y) and, if ``lim`` is None, use the same limits on both
             axes, to compare an estimate with the true values
         stat_blk (str or list): statistics to write. A preset, ``'all'`` (the number of pairs ``'ndat'``, the
-            correlation coefficient ``'rho'``, and the ``'mean'`` and ``'var'`` of each variable) or
-            ``'minimal'`` (``'rho'``), or a list of those names. ``False`` or ``'none'`` writes none. The
-            number of pairs and the correlation are written on the scatter plot, in the corner with the
-            fewest points, and the mean and variance above the histogram of ``x`` and under the one of ``y``
+            Pearson and Spearman correlation coefficients ``'rho'`` and ``'rho_s'``, and the ``'mean'`` and
+            ``'std'`` of each variable) or ``'minimal'`` (``'rho'``), or a list of those names (``'var'`` is also
+            available). ``False`` or ``'none'`` writes none. The number of pairs and the correlations are written on
+            the scatter plot, in the corner with the fewest points, and the mean and standard deviation (or variance)
+            next to each histogram
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, the one of the plot style
-        ax (ax): Matplotlib axis for the scatter plot. The histograms are drawn beside it, below and to
-            its left, so leave room around it. If None, a new figure is made
+        ax (ax): Matplotlib axis for the scatter plot. The histograms are drawn outside it, below and to
+            its right, so leave room around it. If None, a new figure is made with a square plot
         grid (bool): plots the major grid lines if True. Based on Parameters['plotting.grid'] if None.
         axis_xy (bool): GSLIB-style axis visibility if True. Based on Parameters['plotting.axis_xy']
             if None.
-        x2, y2: a second data set, drawn over the first in the colour ``mc2``, with its histograms over
-            the first ones (both half transparent). Both are needed. The two sets are given a legend, with
-            the number of pairs and the correlation coefficient of each (if ``stat_blk`` has them), and
-            the mean and variance of each are written in its colour. ``mc`` must then be a single colour (``'C0'`` if None), not ``'kde'`` or values
+        x2, y2: a second data set, drawn over the first in the colour ``mc2``, with its histograms over the
+            first ones (as outlines in the colour of each set, so that neither hides the other). Both are needed.
+            The two sets are given a legend, in an empty corner, and the statistics of each are written in its
+            colour. When both sets have the same ``x`` (or ``y``) values, that histogram is drawn once.
+            ``mc`` must then be a single colour (``'C0'`` if None), not ``'kde'`` or values
         mc2 (str): matplotlib color of the second data set
         label, label2 (str): legend labels of the two data sets (default ``'Data 1'`` and ``'Data 2'``)
         logx, logy (bool): log scale of the x or y axis, for the points and the histograms. The values must be
@@ -100,8 +104,10 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
             data's if None
         background (color): colour of the plotting area of the scatter plot, for example ``'lightgrey'``
             or ``'white'``. The style's if None
-        alpha (float): opacity of the points and the bars of two data sets, from 0 (invisible) to 1. Default: 0.6
-        legend_kws (dict): arguments for ``ax.legend`` (two data sets) that replace the defaults, ``loc='best'``
+        alpha (float): opacity of the points of two data sets, from 0 (invisible) to 1. Default: 0.6. Their histograms
+            are drawn as outlines in their colour, which are not made transparent
+        legend_kws (dict): arguments for ``ax.legend`` (two data sets) that replace the defaults (a compact legend in the
+            corner where it covers the fewest points; give ``loc`` to choose the corner)
         line45_kws (dict): arguments for the 45 degree line that replace the defaults (``color='k'``, ``lw=1``,
             ``ls='--'`` and ``zorder=1``)
         stat_bbox (dict): arguments for the box behind the statistics on the scatter plot that replace the
@@ -201,18 +207,10 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
     fig, ax, _ = setup_plot(ax, figsize=figsize, aspect=False)
     if new_figure:
         ax.set_axes_locator(None)
-        ax.set_position([0.28, 0.28, 0.60 if cbar and values is not None else 0.67, 0.67])
-    fmtstr = '{{x:.{}g}}'.format(Parameters.get('plotting.sigfigs') or 3)  # as format_plot, for log axes
-    histx = ax.inset_axes([0, -0.28, 1, 0.22], sharex=ax)
-    histy = ax.inset_axes([-0.28, 0, 0.22, 1], sharey=ax)
+        _square_axes(ax, colorbar=cbar and values is not None)
     if two:
-        def tag(a, b):
-            parts = (['n = %d' % len(a)] if 'ndat' in stats_on else []) + (
-                [r'$\rho = %.3f$' % np.corrcoef(a, b)[0, 1]] if 'rho' in stats_on else [])
-            return ' (%s)' % ', '.join(parts) if parts else ''
-        ax.scatter(x, y, c=mc, s=ms, alpha=alpha, label=(label or 'Data 1') + tag(x, y))
-        ax.scatter(x2, y2, c=mc2, s=ms, alpha=alpha, label=(label2 or 'Data 2') + tag(x2, y2))
-        ax.legend(**dict(dict(loc='best'), **(legend_kws or {})))
+        ax.scatter(x, y, c=mc, s=ms, alpha=alpha, label=label or 'Data 1')
+        ax.scatter(x2, y2, c=mc2, s=ms, alpha=alpha, label=label2 or 'Data 2')
     elif values is None:
         points = ax.scatter(x, y, c=mc, s=ms)
     else:
@@ -227,75 +225,111 @@ def cross_plot(x, y, nbins=20, lim=None, xlabel=None, ylabel=None, title=None, m
         points = ax.scatter(x.to_numpy()[order], y.to_numpy()[order], c=values.to_numpy()[order], s=ms,
                             cmap=cmap, vmin=vmin, vmax=vmax, norm=norm)
         if cbar:
-            colorbar = fig.colorbar(points, cax=ax.inset_axes([1.03, 0, 0.035, 1]))
+            colorbar = fig.colorbar(points, cax=ax.inset_axes([1.03, 0, 0.04, 1]))
+    format_plot(ax, xlabel=xlabel, ylabel=ylabel, title=title, grid=grid, axis_xy=axis_xy, logx=logx, logy=logy)
     if logx:
-        ax.set_xscale('log')
-        histx.xaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))  # a few more marks than the decades
-        histx.xaxis.set_major_formatter(StrMethodFormatter(fmtstr))
-        histx.xaxis.set_minor_formatter(NullFormatter())
+        ax.xaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))  # a few more marks than the decades
+        ax.xaxis.set_minor_formatter(NullFormatter())
     if logy:
-        ax.set_yscale('log')
-        histy.yaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))  # a few more marks than the decades
-        histy.yaxis.set_major_formatter(StrMethodFormatter(fmtstr))
-        histy.yaxis.set_minor_formatter(NullFormatter())
+        ax.yaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))
+        ax.yaxis.set_minor_formatter(NullFormatter())
     if xr is not None:
         ax.set_xlim(xr)
     if yr is not None:
         ax.set_ylim(yr)
-    format_plot(ax, title=title, grid=grid, axis_xy=axis_xy)
-    ax.tick_params(labelleft=False, labelbottom=False)
-    bars = dict(alpha=alpha, log=log_counts) if two else dict(log=log_counts)
-    histx.hist(x, bins=edges[0], color=mc if two else hist_color, **bars)
-    histy.hist(y, bins=edges[1], color=mc if two else hist_color, orientation='horizontal', **bars)
-    if two:
-        histx.hist(x2, bins=edges[0], color=mc2, **bars)
-        histy.hist(y2, bins=edges[1], color=mc2, orientation='horizontal', **bars)
-    histy.invert_xaxis()
     if line45:
         ax.plot(lim, lim, **dict(dict(color='k', lw=1, ls='--', zorder=1), **(line45_kws or {})))
-    histx.set_ylim(top=histx.get_ylim()[1] * (8.0 if log_counts else 1.6))  # room above the bars for the statistics
-    histx.set_yticks([])
-    histy.set_xticks([])
-    size = histx.xaxis.get_ticklabels()[0].get_size() if label_size is None else label_size
-    histx.set_xlabel(xlabel, fontsize=size)
-    histy.set_ylabel(ylabel, fontsize=size)
+    if label_size is not None:
+        ax.xaxis.label.set_size(label_size)
+        ax.yaxis.label.set_size(label_size)
     if values is not None and cbar:
-        colorbar.set_label(cbar_label, fontsize=size)
-    # a light background keeps the statistics readable where they are over the points or the bars
-    box = dict(dict(facecolor='white', alpha=0.75, edgecolor='none', pad=2), **(stat_bbox or {}))
-    corner_stats = [t for n, t in (('ndat', 'n = %d' % len(x)), ('rho', r'$\rho = %.3f$' % np.corrcoef(x, y)[0, 1]))
-                    if n in stats_on]
-    if corner_stats and not two:
-        # the corner with the fewest points under the label
-        xl, yl = ax.get_xlim(), ax.get_ylim()
-        fx = ((np.log10(x) if logx else x) - (np.log10(xl[0]) if logx else xl[0])) / (
-            (np.log10(xl[1]) - np.log10(xl[0])) if logx else (xl[1] - xl[0]))
-        fy = ((np.log10(y) if logy else y) - (np.log10(yl[0]) if logy else yl[0])) / (
-            (np.log10(yl[1]) - np.log10(yl[0])) if logy else (yl[1] - yl[0]))
-        corners = [(0.05, 0.95, 'left', 'top'), (0.95, 0.95, 'right', 'top'),
-                   (0.05, 0.05, 'left', 'bottom'), (0.95, 0.05, 'right', 'bottom')]
+        colorbar.ax.set_title(cbar_label, loc='left', pad=10, **({} if label_size is None else {'fontsize': label_size}))
+    hist_stats = [n for n in ('mean', 'std', 'var') if n in stats_on]
+    # a histogram of values both data sets share (for example the true values) is drawn once
+    same_x = two and len(x) == len(x2) and np.array_equal(x.to_numpy(), x2.to_numpy())
+    same_y = two and len(y) == len(y2) and np.array_equal(y.to_numpy(), y2.to_numpy())
+    xsets = [(x, mc, None), (x2, mc2, None)] if two and not same_x else [(x, hist_color, None)]
+    ysets = [(y, mc, None), (y2, mc2, None)] if two and not same_y else [(y, hist_color, None)]
+    histx, histy = _marginal_hists(ax, xsets, ysets, edges[0], edges[1], stats=hist_stats, stat_fontsize=stat_size,
+                                   log_counts=log_counts, logx=logx, logy=logy,
+                                   gap=0.85 if values is not None and cbar else 0.12)
+    # the corner with the fewest points holds the statistics, and the next one the legend
+    xl, yl = ax.get_xlim(), ax.get_ylim()
+    px = pd.concat([x, x2]) if two else x
+    py = pd.concat([y, y2]) if two else y
+    fx = ((np.log10(px) if logx else px) - (np.log10(xl[0]) if logx else xl[0])) / (
+        (np.log10(xl[1]) - np.log10(xl[0])) if logx else (xl[1] - xl[0]))
+    fy = ((np.log10(py) if logy else py) - (np.log10(yl[0]) if logy else yl[0])) / (
+        (np.log10(yl[1]) - np.log10(yl[0])) if logy else (yl[1] - yl[0]))
+    corners = [(0.05, 0.95, 'left', 'top', 'upper left'), (0.95, 0.95, 'right', 'top', 'upper right'),
+               (0.05, 0.05, 'left', 'bottom', 'lower left'), (0.95, 0.05, 'right', 'bottom', 'lower right')]
 
-        def points_under(corner):
-            inside_x = (fx < 0.35) if corner[2] == 'left' else (fx > 0.65)
-            inside_y = (fy > 0.88) if corner[3] == 'top' else (fy < 0.12)
-            return (inside_x & inside_y).sum()
-        cx, cy, ha, va = min(corners, key=points_under)
-        ax.text(cx, cy, '\n'.join(corner_stats), transform=ax.transAxes, ha=ha, va=va, bbox=box,
-                fontsize=stat_size)
-    hist_stats = [n for n in ('mean', 'var') if n in stats_on]
-    if hist_stats:
-        lines = {'mean': lambda v: 'Mean = %.2f' % v.mean(), 'var': lambda v: 'Var = %.2f' % v.var(ddof=0)}
-        text = lambda v: '\n'.join(lines[n](v) for n in hist_stats)
-        for i, (xv, yv, color) in enumerate([(x, y, mc), (x2, y2, mc2)] if two else [(x, y, None)]):
-            colour = {} if color is None else {'color': color}
-            # the second data set: beside the first above the histogram of x, below it under the one of y
-            histx.annotate(text(xv), (0.03 + 0.5 * i, 0.97), xycoords='axes fraction', ha='left', va='top',
-                           fontsize=stat_size, **colour)
-            histy.annotate(text(yv), (0, -0.02), xycoords='axes fraction', xytext=(0, -i * (len(hist_stats) + 0.6) * stat_size),
-                           textcoords='offset points', ha='left', va='top', fontsize=stat_size, **colour)
+    # the height of the box of statistics (all the data sets, one under the other), as a part of the plot
+    n_lines = sum(n in stats_on for n in ('ndat', 'rho', 'rho_s'))
+    box_height = ((n_lines + 0.8) * (2 if two else 1) + 0.6) * stat_size * 1.3 / (
+        ax.get_position().height * fig.get_size_inches()[1] * 72)
+
+    box_width = 11 * 0.6 * stat_size / (ax.get_position().width * fig.get_size_inches()[0] * 72)
+
+    def points_under(corner):
+        inside_x = (fx < 0.05 + box_width + 0.02) if corner[2] == 'left' else (fx > 0.95 - box_width - 0.02)
+        inside_y = (fy > 1 - box_height - 0.05) if corner[3] == 'top' else (fy < box_height + 0.05)
+        # the 45 degree line runs through the lower left and the upper right corners
+        on_line = line45 and (corner[2], corner[3]) in (('left', 'bottom'), ('right', 'top'))
+        return (inside_x & inside_y).sum() + (len(px) if on_line else 0)
+    stats_corner = min(corners, key=points_under)
+    legend_loc = None
+    if two:
+        # the legend and the statistics go to the two corners where together they cover the fewest points (and the
+        # legend is not over the 45 degree line)
+        renderer = fig.canvas.get_renderer() if hasattr(fig.canvas, 'get_renderer') else fig._get_renderer()
+        both = ax.transData.transform(np.column_stack([px, py]))
+        along = (np.geomspace if logx and logy else np.linspace)(*xl, 100)  # equal steps on the axes
+        diagonal = ax.transData.transform(np.column_stack([along] * 2)) if line45 else None
+        # a compact legend (the marker needs no long handle), as large as the tick labels
+        kws = dict(dict(fontsize=ax.xaxis.get_ticklabels()[0].get_size(), handlelength=1.0, handletextpad=0.5,
+                        borderaxespad=0.4), **(legend_kws or {}))
+        has_stats = any(n in stats_on for n in ('ndat', 'rho', 'rho_s'))
+
+        def covered(loc):
+            legend = ax.legend(loc=loc, **kws)
+            legend.draw(renderer)  # a legend that has not been drawn does not know its place yet
+            box = legend.get_window_extent(renderer)
+            # the box of the legend is wider than its text: what can hide a point is the markers and the text
+            right = max(t.get_window_extent(renderer).x1 for t in legend.get_texts()) + 0.8 * stat_size
+            legend.remove()
+            inside = lambda xy: ((xy[:, 0] > box.x0) & (xy[:, 0] < right) & (xy[:, 1] > box.y0) & (xy[:, 1] < box.y1)).sum()
+            return inside(both) + (inside(diagonal) if diagonal is not None else 0)
+        if 'loc' in kws:
+            legend_loc = kws.pop('loc')
+        else:
+            score = {c[4]: covered(c[4]) for c in corners}
+            pairs = [(score[l[4]] + (points_under(s_) if has_stats else 0), points_under(s_), l, s_)
+                     for l in corners for s_ in corners if not (has_stats and l is s_)]
+            _, _, legend_corner, stats_corner = min(pairs, key=lambda t: t[:2])
+            legend_loc = legend_corner[4]
+    cx, cy, ha, va, _ = stats_corner
+    # a light background keeps the statistics readable where they are over the points
+    box = dict(dict(facecolor='white', alpha=0.75, edgecolor='none', pad=2), **(stat_bbox or {}))
+    sets_xy = [(x, y, mc), (x2, y2, mc2)] if two else [(x, y, None)]
+    for k, (a, b, colour) in enumerate(sets_xy):
+        # on a log axis the statistics are those of the logarithm, which is what is plotted
+        a = np.log(a) if logx else a
+        b = np.log(b) if logy else b
+        lines = [t for n, t in (('ndat', '$n = $%d' % len(a)),
+                                ('rho', (r'$\rho_{\ln} = $' if logx or logy else r'$\rho = $') + _stat_number(np.corrcoef(a, b)[0, 1])),
+                                ('rho_s', r'$\rho_s = $' + _stat_number(spearmanr(a, b)[0])))
+                 if n in stats_on]
+        if lines:
+            step = (len(lines) + 0.8) * stat_size * (1 if va == 'bottom' else -1)
+            # the first data set is on top, as in the legend and beside the histograms
+            place = (len(sets_xy) - 1 - k) if va == 'bottom' else k
+            ax.annotate('\n'.join(lines), (cx, cy), xycoords='axes fraction', xytext=(0, place * step),
+                        textcoords='offset points', ha=ha, va=va, bbox=box, fontsize=stat_size, linespacing=1.0,
+                        **({'color': colour} if two else {}))
+    if two:
+        ax.legend(loc=legend_loc, **kws)
     _format_axes(ax, grid=grid, ticks=ticks, fontsize=fontsize, background=background)
-    for h in (histx, histy):
-        _format_axes(h, grid=False, ticks=ticks, fontsize=fontsize)
     ax.histx, ax.histy = histx, histy
     if output_file or ('pdfpages' in kwargs):
         export_image(output_file, **kwargs)
