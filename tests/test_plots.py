@@ -1765,6 +1765,11 @@ def test_cross_plot_refuses_limits_that_do_not_increase(kw):
     assert len(plt.get_fignums()) == 0
 
 
+def _drawn(ax):
+    ax.figure.canvas.draw()
+    return ax
+
+
 def _inches(ax, box):
     """The bounding box of an artist, in inches from the lower left corner of the figure."""
     return box.transformed(ax.figure.dpi_scale_trans.inverted())
@@ -1824,6 +1829,111 @@ def test_cross_plot_stat_blk_chooses_the_statistics():
     with pytest.raises(ValueError, match="'median' is not a valid stat_blk"):
         gs.cross_plot(x, y, mc='C0', stat_blk=['median'])
     assert len(plt.get_fignums()) == 0
+
+def test_scatter_plot_without_hist_is_as_before():
+    p = gs.ExampleData('point3d_ind_mv')
+    x, y = p[p.variables[0]], p[p.variables[1]]
+    ax = gs.scatter_plot(x, y, nmax=300)
+    assert not hasattr(ax, 'histx') and ax.texts[0].get_linespacing() == 0.8
+    assert ax.get_xlim() == (np.min(x), np.max(x))  # no margin without the histograms
+    with pytest.raises(ValueError, match='invalid stat_blk'):
+        gs.scatter_plot(x, y, stat_blk=['covariance'])
+    plt.close('all')
+
+
+def test_scatter_plot_hist_draws_the_histograms_with_their_statistics():
+    p = gs.ExampleData('point3d_ind_mv')
+    x, y = p[p.variables[0]].to_numpy(), p[p.variables[1]].to_numpy()
+    ax = _drawn(gs.scatter_plot(x, y, hist=True, nmax=500, nbins=12, stat_blk=['count', 'pearson', 'spearmanr'],
+                                stat_xy=(0.95, 0.95), s=4))
+    assert len(ax.histx.patches) == 12 and len(ax.histy.patches) == 12
+    assert sum(p_.get_height() for p_ in ax.histx.patches) == len(x)  # all the data, not the nmax of the points
+    assert ax.histx.texts[0].get_text() == '$m$ = %.2f\n$\\sigma$ = %.2f' % (x.mean(), x.std())
+    assert ax.histy.texts[0].get_text() == '$m$ = %.2f\n$\\sigma$ = %.2f' % (y.mean(), y.std())
+    assert ax.texts[0].get_text().count('n = ') == 1  # the number of data is written once, on the plot
+    assert '$\\rho = $%s' % round(np.corrcoef(x, y)[0, 1], 2) in ax.texts[0].get_text()
+    assert 'c = ' not in ax.texts[0].get_text()
+    plot, below, right = (_inches(ax, a.get_window_extent()) for a in (ax, ax.histx, ax.histy))
+    assert abs(plot.width - plot.height) < 1e-6 and below.y1 < plot.y0 and right.x0 > plot.x1
+    assert ax.texts[0].get_linespacing() == 1.0
+    # a little room around the points, so that the 0.0 labels of the two axes do not touch
+    assert ax.get_xlim()[0] < np.min(x) and ax.get_ylim()[0] < np.min(y)
+    plt.close('all')
+
+
+def test_scatter_plot_hist_with_a_colour_bar_next_to_the_plot_and_statistics_in_log_space():
+    rng = np.random.default_rng(2)
+    x = rng.lognormal(0, 0.7, 150)
+    y = x ** 0.5 * rng.lognormal(0, 0.4, 150)
+    ax = _drawn(gs.scatter_plot(x, y, hist=True, cbar=True, c='kde', logx=True, logy=True))
+    bar = [a for a in ax.child_axes if a.get_title(loc='left')][0]
+    plot, box = (_inches(ax, a.get_window_extent()) for a in (ax, bar))
+    assert box.x0 - plot.x1 < 0.2
+    assert ax.histx.texts[0].get_text() == '$m_{\\ln}$ = %.2f\n$\\sigma_{\\ln}$ = %.2f' % (np.log(x).mean(), np.log(x).std())
+    assert '$\\rho_{\\ln} = $%s' % round(np.corrcoef(np.log(x), np.log(y))[0, 1], 2) in ax.texts[0].get_text()
+    plt.close('all')
+
+
+def test_scatter_plot_hist_stat_blk_chooses_the_statistics_next_to_the_histograms():
+    rng = np.random.default_rng(6)
+    x, y = rng.normal(0, 1, 60), rng.normal(0, 1, 60)
+    ax = gs.scatter_plot(x, y, hist=True, hist_stat_blk=['var'])
+    assert ax.histx.texts[0].get_text() == '$\\sigma^2$ = %.2f' % x.var()
+    assert len(gs.scatter_plot(x, y, hist=True, hist_stat_blk=[]).histx.texts) == 0
+    plt.close('all')
+    with pytest.raises(ValueError, match="hist_stat_blk must be from"):
+        gs.scatter_plot(x, y, hist=True, hist_stat_blk=['count'])
+    assert len(plt.get_fignums()) == 0
+
+
+def test_scatter_plot_hist_stat_blk_can_be_one_name():
+    rng = np.random.default_rng(6)
+    x, y = rng.normal(0, 1, 60), rng.normal(0, 1, 60)
+    assert gs.scatter_plot(x, y, hist=True, hist_stat_blk='var').histx.texts[0].get_text() == '$\\sigma^2$ = %.2f' % x.var()
+    plt.close('all')
+
+
+def test_scatter_plot_hist_statistics_follow_sigfigs_and_roundstats():
+    rng = np.random.default_rng(6)
+    x, y = rng.normal(0, 1, 60), rng.normal(0, 1, 60)
+    ax = gs.scatter_plot(x, y, hist=True, sigfigs=4, roundstats=True)
+    assert ax.histx.texts[0].get_text() == '$m$ = %.4f\n$\\sigma$ = %.4f' % (x.mean(), x.std())
+    ax = gs.scatter_plot(x, y, hist=True, sigfigs=3, roundstats=False)  # significant figures
+    assert ax.histy.texts[0].get_text() == '$m$ = %s\n$\\sigma$ = %s' % ('{:.3g}'.format(y.mean()), '{:.3g}'.format(y.std()))
+    plt.close('all')
+
+
+def test_scatter_plot_hist_on_a_log_axis_needs_values_above_zero():
+    x = np.array([0., 1., 2., 5., 9., 20.])
+    y = np.array([3., 1., 4., 1., 5., 9.])
+    with pytest.raises(ValueError, match='needs values above zero'):
+        gs.scatter_plot(x, y, hist=True, logx=True)
+    with pytest.raises(ValueError, match='log scale of y'):
+        gs.scatter_plot(y, x, hist=True, logy=True)
+    assert plt.get_fignums() == []  # the error comes before any figure is made
+    gs.scatter_plot(x, y, logx=True)  # without the histograms a zero is replaced, as before
+    plt.close('all')
+
+
+def test_scatter_plot_hist_y_histogram_is_clear_of_the_colour_bar():
+    rng = np.random.default_rng(2)
+    x, y = rng.normal(0, 1, 80), rng.normal(0, 1, 80)
+    ax = _drawn(gs.scatter_plot(x, y, hist=True, cbar=True))
+    bar = [a for a in ax.child_axes if a.get_title(loc='left')][0]
+    box, right = (_inches(ax, a.get_window_extent()) for a in (bar, ax.histy))
+    assert right.x0 > box.x1
+    plt.close('all')
+
+
+def test_scatter_plot_hist_weights_the_statistics():
+    rng = np.random.default_rng(4)
+    x, y, w = rng.normal(0, 1, 100), rng.normal(0, 1, 100), rng.uniform(0.2, 3, 100)
+    ax = gs.scatter_plot(x, y, wt=w, hist=True)
+    mean = np.average(x, weights=w)
+    assert '$m$ = %.2f' % mean in ax.histx.texts[0].get_text()
+    assert '$\\sigma$ = %.2f' % np.sqrt(np.average((x - mean) ** 2, weights=w)) in ax.histx.texts[0].get_text()
+    plt.close('all')
+
 
 def _clip_grid():
     grid = gs.GridDef([4, 0.5, 1, 4, 0.5, 1, 1, 0.5, 1])  # cell centres 0.5, 1.5, 2.5, 3.5

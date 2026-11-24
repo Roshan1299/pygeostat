@@ -22,7 +22,8 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
                 cbar_label=None, stat_blk=None, stat_xy=None, stat_ha=None, stat_fontsize=None,
                 roundstats=None, sigfigs=None, xlim=None, ylim=None, xlabel=None, ylabel=None, output_file=None, out_kws = None,
                 title=None, grid=None, axis_xy=None, label='_nolegend_', ax=None, figsize=None,
-                return_plot=False, logx=None, logy=None, **kwargs):
+                return_plot=False, logx=None, logy=None, hist=False, nbins=20, hist_color='0.9', hist_stat_blk=None,
+                **kwargs):
     '''
     Scatter plot that mimics the GSLIB scatter_plot program, providing summary statistics, kernel
     density estimate coloring, etc. NaN values are treated as null and removed from the plot and
@@ -82,6 +83,20 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
         ax(Matplotlib axis handle): if None, create a new figure and axis handles
         figsize(tuple): size of the figure, if creating a new one when ax = None
         logx, logy (str): permissible mpl axis scale, like `log`
+        hist (bool): draw the histogram of ``x`` below the scatter plot and the one of ``y`` to its
+            right, each with its statistics beside it (the layout of Figure 9 of Castro Moreira, Costa
+            and Deutsch, 2026). The histograms are drawn outside ``ax``, so leave room around it; with
+            ``cbar`` the colour bar is drawn to the right of them. The histograms use all the data (not
+            ``nmax``) and ``wt``. With ``hist`` the axis limits that come from the data get a 3 percent
+            margin, so that the points at the edge are not cut in half, and a log axis needs values above
+            zero: the statistics are then those of the natural logarithm (the ``'pearson'`` statistic of
+            ``stat_blk`` is written ``rho_ln``)
+        nbins (int): number of histogram bins, if ``hist``
+        hist_color (color): fill colour of the histogram bars, if ``hist``. Default: ``'0.9'``
+        hist_stat_blk (list): statistics written beside each histogram, from ``'mean'``, ``'std'`` and ``'var'``
+            (on a log axis those of the natural logarithm), if ``hist``. ``['mean', 'std']`` if None. They have the
+            digits of ``sigfigs`` and ``roundstats``. The number of data is not repeated here: ask for it with
+            ``'count'`` in ``stat_blk``
         **kwargs: Optional permissible keyword arguments to pass to either: (1) matplotlib's
             scatter function
 
@@ -117,10 +132,22 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
     from scipy.stats import gaussian_kde
     from copy import deepcopy
     import pygeostat as gs
-    from . utils import _set_stat_fontsize
+    from . utils import _set_stat_fontsize, _marginal_hists, _square_axes
+    if isinstance(hist_stat_blk, str):
+        hist_stat_blk = [hist_stat_blk]
+    if hist and hist_stat_blk is not None and not set(hist_stat_blk) <= {'mean', 'std', 'var'}:
+        raise ValueError("hist_stat_blk must be from 'mean', 'std' and 'var' (the number of data is the 'count' of "
+                         "stat_blk), not {}".format(list(hist_stat_blk)))
+    if hist:
+        for name, values, log in (('x', x, logx), ('y', y, logy)):
+            if log and np.nanmin(np.asarray(values, dtype=float)) <= 0:
+                raise ValueError("The log scale of {} needs values above zero when hist=True, because the statistics "
+                                 "next to the histogram are those of the logarithm".format(name))
     # Figure out the plotting axes
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
+        if hist:
+            _square_axes(ax, colorbar=cbar)
     # Labels if present
     if xlabel is None:
         xlabel = gs.get_label(x)
@@ -228,7 +255,7 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
     if clim is None:
         clim = (None, None)
     # Set-up plot if no axis is supplied using the ImageGrid method if required or the regular way
-    cax = None
+    cax = ax.inset_axes([1.03, 0, 0.04, 1]) if hist and cbar else None
     fig, ax, cax = gs.setup_plot(ax, cax=cax, cbar=cbar, figsize=figsize)
     # Scatter - let Matplotlib use the default size/color if None
     if s is None:
@@ -259,12 +286,22 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
         cbar.ax.set_yticklabels(ticklabels, ha='left')
         cbar.ax.tick_params(axis='y', pad=2)
         if cbar_label is not None:
-            cbar.set_label(cbar_label, ha='center', va='top', labelpad=2)
+            if hist:
+                cbar.ax.set_title(cbar_label, loc='left', pad=10)
+            else:
+                cbar.set_label(cbar_label, ha='center', va='top', labelpad=2)
     # Set the axis extents
+    hist_lim = [xlim, ylim]
     if xlim is None:
         xlim = (np.min(x), np.max(x))
+        hist_lim[0] = xlim
+        if hist and not logx:
+            xlim = (xlim[0] - 0.03 * (xlim[1] - xlim[0]), xlim[1] + 0.03 * (xlim[1] - xlim[0]))
     if ylim is None:
         ylim = (np.min(y), np.max(y))
+        hist_lim[1] = ylim
+        if hist and not logy:
+            ylim = (ylim[0] - 0.03 * (ylim[1] - ylim[0]), ylim[1] + 0.03 * (ylim[1] - ylim[0]))
     if logx and xlim[0] <= 0:
         if xlim[0] == 0:
             xlim = [Parameters['plotting.log_lowerval'], ylim[1]]
@@ -299,12 +336,13 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
         if 'count' in stat_blk:
             txtstats += r'$n = $'+str(x.shape[0])
         if 'pearson' in stat_blk:
-            corr = gs.weighted_correlation(x, y, wt)
+            # with the histograms on a log axis the statistics describe the logarithm, as plotted
+            corr = gs.weighted_correlation(np.log(x) if hist and logx else x, np.log(y) if hist and logy else y, wt)
             if roundstats:
                 corr = round(corr, sigfigs)
             else:
                 corr = gs.round_sigfig(corr, sigfigs)
-            txtstats += '\n'+r'$\rho = $'+str(corr)
+            txtstats += '\n'+(r'$\rho_{\ln} = $' if hist and (logx or logy) else r'$\rho = $')+str(corr)
         if 'spearmanr' in stat_blk:
             corr = gs.weighted_correlation_rank(x, y, wt)
             if roundstats:
@@ -327,7 +365,17 @@ def scatter_plot(x, y, wt=None, nmax=None, s=None, c=None, alpha=None, cmap=None
         stat_fontsize = _set_stat_fontsize(stat_fontsize)
         # Draw to plot
         ax.text(stat_xy[0], stat_xy[1], txtstats, va=va, ha=stat_ha, transform=ax.transAxes,
-                fontsize=stat_fontsize, linespacing=0.8)
+                fontsize=stat_fontsize, linespacing=1.0 if hist else 0.8)
+
+    if hist:
+        hist_stats = ['mean', 'std'] if hist_stat_blk is None else list(hist_stat_blk)
+        edges = [(np.geomspace if log else np.linspace)(lim[0], lim[1], nbins + 1)
+                 for log, lim in ((logx, hist_lim[0] or ax.get_xlim()), (logy, hist_lim[1] or ax.get_ylim()))]
+        weights = wt if len(np.unique(wt)) > 1 else None
+        ax.histx, ax.histy = _marginal_hists(ax, [(x, hist_color, weights)], [(y, hist_color, weights)], edges[0],
+                                             edges[1], stats=hist_stats, stat_fontsize=stat_fontsize, logx=bool(logx),
+                                             logy=bool(logy), gap=0.85 if cbar else 0.12, sigfigs=sigfigs,
+                                             roundstats=roundstats)
 
     # Handle dictionary defaults
     if out_kws is None:
