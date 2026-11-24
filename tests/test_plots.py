@@ -1962,6 +1962,18 @@ def test_convex_hull_3d_inputs_nan_and_errors():
     with pytest.raises(ValueError, match='plane'):
         gs.convex_hull_3d([0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3])  # on one line
 
+
+def test_clip_plot_outline_default_is_for_the_hull_only():
+    """The convex hull is drawn by default, a given polygon is not; outline overrides both."""
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
+    points = pd.DataFrame({'x': [1., 3, 2, 1.5], 'y': [1., 1, 3, 2]})
+    hull = dict(points=points, x='x', y='y')
+    assert len(gs.clip_plot(_clip_grid(), square, var='v', cbar=False).lines) == 0
+    assert len(gs.clip_plot(_clip_grid(), 'hull', var='v', cbar=False, **hull).lines) == 1
+    assert len(gs.clip_plot(_clip_grid(), square, var='v', cbar=False, outline=True).lines) == 1
+    assert len(gs.clip_plot(_clip_grid(), 'hull', var='v', cbar=False, outline=False, **hull).lines) == 0
+    plt.close('all')
+
 def _gt_twin(ax):
     """The axis of the grades, which shares the x axis with the one of the tonnages"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]

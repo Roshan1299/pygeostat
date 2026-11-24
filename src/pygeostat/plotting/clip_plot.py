@@ -116,7 +116,7 @@ def _read_polygon(boundary):
 
 
 def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None, pointkws=None, x=None,
-              y=None, ax=None, **kwargs):
+              y=None, outline=None, outline_color='k', outline_lw=1, ax=None, **kwargs):
     """
     Plot a gridded variable only inside a polygon, as the GSLIB programs clipgrid and pixelplt2008 do.
     The cells outside are NaN, so they are left empty. A cell is inside if its centre is.
@@ -141,6 +141,10 @@ def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None
             black dots
         pointkws (dict): keyword arguments of ``matplotlib.pyplot.scatter`` for the points, such as ``s``
         x, y (str): column names of the coordinates of ``points``. Read from a DataFile when it knows them
+        outline (bool): draw the polygon. If None, it is drawn for the convex hull, whose shape is not obvious
+            from the plot, and left out for a polygon that is given
+        outline_color (str): matplotlib color of the polygon
+        outline_lw (float): line width of the polygon
         ax (ax): Matplotlib axis to plot on
         **kwargs: Optional permissible keyword arguments to pass to
             :func:`gs.slice_plot() <pygeostat.plotting.slice_plot.slice_plot>`. ``output_file`` and
@@ -221,6 +225,8 @@ def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None
         ax.scatter(points[x], points[y], **{'c': 'k', 's': 4, 'linewidths': 0, **(pointkws or {})})
         ax.set_xlim(grid_xlim)
         ax.set_ylim(grid_ylim)
+    if hull if outline is None else outline:
+        ax.plot(polygon[:, 0], polygon[:, 1], color=outline_color, lw=outline_lw)
     if output_file or ('pdfpages' in out_kws):
         export_image(output_file, **out_kws)
     return (ax, colorbar) if return_cbar else ax
