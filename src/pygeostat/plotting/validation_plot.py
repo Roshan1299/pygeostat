@@ -143,7 +143,7 @@ def validation_plot(x, y, figsize=None, vlim=None, xlabel=None, ylabel=None, tit
     if ax is None:
         _, ax = plt.subplots(figsize=figsize)
     # Configure plot
-    ax.axis('equal')
+    ax.set_aspect('equal', adjustable='box')  # keep the limits as given; 'datalim' drops them in a non-square axes
     if xlabel is None:
         xlabel = get_label(x)
         if xlabel == 0:

@@ -1094,6 +1094,22 @@ def test_validation_plot_shows_the_mean_squared_error_not_its_square_root():
     plt.close('all')
 
 
+@pytest.mark.parametrize('figsize', [None, (10, 6), (6, 10)])
+def test_validation_plot_is_square_with_equal_limits_and_the_line_reaches_the_corners(figsize):
+    """The axes keep the limits they were given: square box, x and y limits equal, 45 degree line corner to corner."""
+    plt.close('all')
+    est = pd.Series([0., 1., 2., 3.])
+    true = pd.Series([0., 1., 2., 7.])
+    ax = gs.validation_plot(est, true, figsize=figsize, stat_blk=False)
+    ax.figure.canvas.draw()
+    box = ax.get_window_extent()
+    assert abs(box.width - box.height) < 1  # a square box, in pixels
+    assert ax.get_xlim() == ax.get_ylim()
+    line = [l for l in ax.lines if list(l.get_xdata()) == list(l.get_ydata())][0]
+    assert tuple(line.get_xdata()) == ax.get_xlim()
+    plt.close('all')
+
+
 def test_histogram_plot_simulation_line_width_ylabel_and_stat_fontsize():
     """lw_real, ylabel and stat_fontsize replace the values that were fixed in the code; the defaults are unchanged."""
     plt.close('all')
