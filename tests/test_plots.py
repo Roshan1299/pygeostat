@@ -1963,6 +1963,26 @@ def test_convex_hull_3d_inputs_nan_and_errors():
         gs.convex_hull_3d([0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3])  # on one line
 
 
+def test_clip_plot_axes_options():
+    """Ticks, font size (also of the colour bar), limits and the colour of the empty cells can be set."""
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
+    ax = gs.clip_plot(_clip_grid(), square, var='v', ticks=6, fontsize={'label': 15, 'tick': 9},
+                      xlim=(0, 3), ylim=(1, 4), background='lightgrey')
+    ax.figure.canvas.draw()
+    assert ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() == 6
+    assert ax.xaxis.label.get_fontsize() == 15 and ax.get_xticklabels()[0].get_fontsize() == 9
+    assert ax.get_xlim() == (0, 3) and ax.get_ylim() == (1, 4)
+    assert tuple(ax.get_facecolor()[:3]) == (0.8274509803921568,) * 3
+    colorbar_axis = [a for a in ax.figure.axes if a is not ax][0]
+    assert colorbar_axis.yaxis.label.get_fontsize() == 15
+    assert colorbar_axis.get_yticklabels()[0].get_fontsize() == 9
+    plt.close('all')
+    ax = gs.clip_plot(_clip_grid(), square, var='v', cbar=False, ticks=False)
+    ax.figure.canvas.draw()
+    assert ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() == 0
+    plt.close('all')
+
+
 def test_clip_plot_outline_default_is_for_the_hull_only():
     """The convex hull is drawn by default, a given polygon is not; outline overrides both."""
     square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
@@ -1972,6 +1992,16 @@ def test_clip_plot_outline_default_is_for_the_hull_only():
     assert len(gs.clip_plot(_clip_grid(), 'hull', var='v', cbar=False, **hull).lines) == 1
     assert len(gs.clip_plot(_clip_grid(), square, var='v', cbar=False, outline=True).lines) == 1
     assert len(gs.clip_plot(_clip_grid(), 'hull', var='v', cbar=False, outline=False, **hull).lines) == 0
+    plt.close('all')
+
+
+def test_clip_plot_limits_are_kept_when_points_are_drawn():
+    """xlim and ylim also apply when the data locations are drawn on top."""
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
+    points = pd.DataFrame({'x': [1., 3, 2, 1.5], 'y': [1., 1, 3, 2]})
+    ax = gs.clip_plot(_clip_grid(), square, var='v', cbar=False, points=points, x='x', y='y',
+                      xlim=(0, 2), ylim=(-1, 5))
+    assert ax.get_xlim() == (0, 2) and ax.get_ylim() == (-1, 5)
     plt.close('all')
 
 def _gt_twin(ax):

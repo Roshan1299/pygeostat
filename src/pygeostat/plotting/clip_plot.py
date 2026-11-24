@@ -11,6 +11,7 @@ import pandas as pd
 from matplotlib.path import Path
 from .export_image import export_image
 from .slice_plot import slice_plot
+from .utils import _format_axes
 
 
 def convex_hull(x, y):
@@ -116,7 +117,8 @@ def _read_polygon(boundary):
 
 
 def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None, pointkws=None, x=None,
-              y=None, outline=None, outline_color='k', outline_lw=1, ax=None, **kwargs):
+              y=None, outline=None, outline_color='k', outline_lw=1, ticks=None, fontsize=None, xlim=None,
+              ylim=None, background=None, ax=None, **kwargs):
     """
     Plot a gridded variable only inside a polygon, as the GSLIB programs clipgrid and pixelplt2008 do.
     The cells outside are NaN, so they are left empty. A cell is inside if its centre is.
@@ -145,6 +147,14 @@ def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None
             from the plot, and left out for a polygon that is given
         outline_color (str): matplotlib color of the polygon
         outline_lw (float): line width of the polygon
+        ticks (bool, float or dict): tick marks. ``True`` draws them, ``False`` removes them, a number sets
+            their length, a dictionary is passed to ``ax.tick_params``. If None, ``gs.Parameters['plotting.ticks']``
+        fontsize (float or dict): font size of the axis labels, tick labels and title (one number, also used for
+            the colour bar), or a dictionary with any of ``'label'``, ``'tick'`` and ``'title'``. The style's
+            sizes if None
+        xlim, ylim (tuple): ``(lower, upper)`` limits of the axes. The extent of the grid if None
+        background (color): colour of the cells outside the polygon, for example ``'lightgrey'`` or
+            ``'white'``. The style's if None
         ax (ax): Matplotlib axis to plot on
         **kwargs: Optional permissible keyword arguments to pass to
             :func:`gs.slice_plot() <pygeostat.plotting.slice_plot.slice_plot>`. ``output_file`` and
@@ -227,6 +237,14 @@ def clip_plot(data, boundary, griddef=None, var=None, points=None, pointvar=None
         ax.set_ylim(grid_ylim)
     if hull if outline is None else outline:
         ax.plot(polygon[:, 0], polygon[:, 1], color=outline_color, lw=outline_lw)
+    _format_axes(ax, grid=kwargs.get('grid'), ticks=ticks, fontsize=fontsize, xlim=xlim, ylim=ylim,
+                 background=background)
+    if colorbar and fontsize is not None:
+        sizes = fontsize if isinstance(fontsize, dict) else {'label': fontsize, 'tick': fontsize}
+        if 'label' in sizes:
+            colorbar.ax.yaxis.label.set_size(sizes['label'])
+        if 'tick' in sizes:
+            colorbar.ax.tick_params(labelsize=sizes['tick'])
     if output_file or ('pdfpages' in out_kws):
         export_image(output_file, **out_kws)
     return (ax, colorbar) if return_cbar else ax
