@@ -1486,6 +1486,200 @@ def test_swath_plot_count_label():
     assert _swath_twin(ax).get_ylabel() == 'Number of samples' and ax.get_ylabel() == 'Grade'
     plt.close('all')
 
+def test_cross_plot_stats_and_nan():
+    x = np.array([0., 1., 2., 3., np.nan])
+    y = np.array([0., 2., 4., 6., 9.])
+    ax = gs.cross_plot(x, y, nbins=3)
+    texts = [t.get_text() for t in ax.texts]
+    assert texts == ['n = 4\n$\\rho = 1.000$']  # the pair with the NaN is left out
+    assert [t.get_text() for t in ax.histx.texts] == ['Mean = 1.50\nVar = 1.25']
+    assert [t.get_text() for t in ax.histy.texts] == ['Mean = 3.00\nVar = 5.00']
+    assert len(ax.collections[0].get_offsets()) == 4
+    plt.close('all')
+
+
+
+def test_cross_plot_follows_the_style_and_the_parameters():
+    """The figure size comes from the plot style, and the colours and point size from gs.Parameters."""
+    x = np.arange(10.)
+    ax = gs.cross_plot(x, x ** 2, custom_style={'figure.figsize': (4, 3)})
+    assert tuple(ax.figure.get_size_inches()) == (4, 3)
+    saved = {k: gs.Parameters[k] for k in ('plotting.cross_plot.c', 'plotting.cross_plot.s',
+                                          'plotting.cross_plot.histcolor')}
+    try:
+        gs.Parameters['plotting.cross_plot.c'] = 'r'
+        gs.Parameters['plotting.cross_plot.s'] = 30
+        gs.Parameters['plotting.cross_plot.histcolor'] = 'b'
+        ax = gs.cross_plot(x, x ** 2)
+        points = ax.collections[0]
+        assert tuple(points.get_facecolor()[0][:3]) == (1.0, 0.0, 0.0) and points.get_sizes()[0] == 30
+        assert tuple(ax.histx.patches[0].get_facecolor()[:3]) == (0.0, 0.0, 1.0)
+    finally:
+        for k, v in saved.items():
+            gs.Parameters[k] = v
+    plt.close('all')
+
+
+def test_cross_plot_draws_on_the_axis_it_is_given():
+    """With ax, nothing new is made: the axis is returned with its histograms inside the same figure."""
+    fig, axes = plt.subplots(1, 2)
+    x = np.arange(10.)
+    ax = gs.cross_plot(x, x ** 2, ax=axes[0])
+    assert ax is axes[0] and ax.histx.figure is fig and ax.histy.figure is fig
+    assert plt.get_fignums() == [fig.number]
+    plt.close('all')
+
+def test_cross_plot_errors():
+    with pytest.raises(ValueError):
+        gs.cross_plot([1., 2., 3.], [1., 2.])
+    with pytest.raises(ValueError):
+        gs.cross_plot([1., np.nan], [np.nan, 2.])
+    plt.close('all')
+
+
+def test_cross_plot_rejects_several_columns():
+    df = pd.DataFrame({'a': [1., 2., 3.], 'b': [2., 1., 3.]})
+    with pytest.raises(ValueError, match='one variable'):
+        gs.cross_plot(df[['a', 'b']], [1., 2., 3., 4., 5., 6.])
+    plt.close('all')
+
+
+def test_cross_plot_colours_the_points_by_density_by_default():
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=60)
+    y = x + rng.normal(size=60)
+    ax = gs.cross_plot(x, y)
+    points = ax.collections[0]
+    from scipy.stats import gaussian_kde
+    density = gaussian_kde(np.vstack([x, y])).evaluate(np.vstack([x, y]))
+    np.testing.assert_allclose(np.sort(points.get_array()), np.sort(density))
+    # the densest points are drawn last, so they are on top
+    assert points.get_array()[-1] == density.max()
+    # all the points on a line: no density, one colour, no error
+    ax = gs.cross_plot(x, 2 * x)
+    assert ax.collections[0].get_array() is None
+    plt.close('all')
+
+
+def test_cross_plot_colours_the_points_by_values_with_a_colour_bar():
+    x = np.arange(6.)
+    y = np.array([1., 3., 2., 5., 4., 6.])
+    third = pd.Series([10., 20., np.nan, 40., 50., 60.], name='Third')
+    ax = gs.cross_plot(x, y, mc=third, cmap='plasma', clim=(0, 100), cbar=True, nbins=3)
+    points = ax.collections[0]
+    np.testing.assert_allclose(points.get_array(), [10., 20., 40., 50., 60.])  # the pair with the NaN is left out
+    assert points.get_clim() == (0, 100) and points.get_cmap().name == 'plasma'
+    assert ax.child_axes[-1].get_ylabel() == 'Third'  # the colour bar, after the two histograms
+    assert len(gs.cross_plot(x, y, mc=third).child_axes) == 2  # no colour bar by default: only the two histograms
+    assert gs.cross_plot(x, y, mc='kde', cbar=True).child_axes[-1].get_ylabel() == 'Density'
+    assert gs.cross_plot(x, y, mc='kde', cbar=True, cbar_label='Count').child_axes[-1].get_ylabel() == 'Count'
+    ax = gs.cross_plot(x, y, mc='red')
+    assert ax.collections[0].get_array() is None and tuple(ax.collections[0].get_facecolor()[0][:3]) == (1.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match='one value for each'):
+        gs.cross_plot(x, y, mc=np.arange(3.))
+    plt.close('all')
+
+
+def test_cross_plot_axis_names_are_as_large_as_the_tick_labels():
+    d = gs.ExampleData('3d_estimate').data
+    ax = gs.cross_plot(d['Estimate'], d['True'])
+    tick = ax.histx.xaxis.get_ticklabels()[0].get_size()
+    assert ax.histx.xaxis.label.get_size() == tick and ax.histy.yaxis.label.get_size() == tick
+    assert (ax.histx.get_xlabel(), ax.histy.get_ylabel()) == ('Estimate', 'True')
+    ax = gs.cross_plot(d['Estimate'], d['True'], label_size=20)
+    assert ax.histx.xaxis.label.get_size() == 20 and ax.histy.yaxis.label.get_size() == 20
+    plt.close('all')
+
+
+def test_cross_plot_45_degree_line_and_log_colours():
+    x = np.array([0., 1., 2., 3., 4.])
+    y = np.array([0., 3., 1., 4., 8.])
+    ax = gs.cross_plot(x, y, line45=True, mc='red')
+    assert ax.get_xlim() == ax.get_ylim() == (0., 8.)  # the same limits on both axes
+    line = ax.lines[0]
+    np.testing.assert_allclose(line.get_xdata(), line.get_ydata())
+    assert not gs.cross_plot(x, y, mc='red').lines  # no line by default
+    assert gs.cross_plot(x, y, line45=True, lim=(-1, 9)).get_xlim() == (-1, 9)  # lim is kept
+    # values that are not above zero get the lowest color on a log scale
+    third = pd.Series([0., 1., 10., 100., 1000.])
+    points = gs.cross_plot(x, y, mc=third, log_color=True).collections[0]
+    assert type(points.norm).__name__ == 'LogNorm' and (points.norm.vmin, points.norm.vmax) == (1., 1000.)
+    np.testing.assert_allclose(points.to_rgba(0.)[:3], points.to_rgba(1.)[:3])
+    with pytest.raises(ValueError, match='above zero'):
+        gs.cross_plot(x, y, mc=pd.Series(np.zeros(5)), log_color=True)
+    plt.close('all')
+
+
+def test_cross_plot_correlation_is_written_in_the_corner_with_the_fewest_points():
+    rng = np.random.default_rng(1)
+    x = np.append(rng.uniform(0, 1, 200), [0., 1.])
+    y = np.append(rng.uniform(0, 1, 200), [0., 1.])
+    keep = ~((x < 0.35) & (y > 0.88))  # an empty top left corner
+    ax = gs.cross_plot(x[keep], y[keep])
+    label = [t for t in ax.texts if 'rho' in t.get_text()][0]
+    assert label.get_position() == (0.05, 0.95)
+    keep = ~((x > 0.65) & (y < 0.12))  # an empty bottom right corner
+    ax = gs.cross_plot(x[keep], y[keep])
+    assert [t for t in ax.texts if 'rho' in t.get_text()][0].get_position() == (0.95, 0.05)
+    plt.close('all')
+
+
+def test_cross_plot_leaves_room_above_the_bars_of_the_x_histogram_for_the_statistics():
+    d = gs.ExampleData('3d_estimate').data
+    ax = gs.cross_plot(d['Estimate'], d['True'])
+    tallest = max(p.get_height() for p in ax.histx.patches)
+    assert ax.histx.get_ylim()[1] >= 1.5 * tallest
+    plt.close('all')
+
+
+def _two_sets():
+    rng = np.random.RandomState(3)
+    x = rng.lognormal(0, 0.5, 60)
+    return x, 2 * x + rng.normal(0, 0.2, 60) + 3, x[::-1] * 1.5, rng.lognormal(1, 0.3, 60)
+
+
+@pytest.mark.parametrize('kw', [dict(lim=(5, 0))])
+def test_cross_plot_refuses_limits_that_do_not_increase(kw):
+    """Reversed limits give a clear error, and no figure is left open."""
+    plt.close('all')
+    x, y, _, _ = _two_sets()
+    with pytest.raises(ValueError, match='must be increasing'):
+        gs.cross_plot(x, y, mc='C0', **kw)
+    assert len(plt.get_fignums()) == 0
+
+
+def test_cross_plot_stat_fontsize_is_separate_from_fontsize():
+    """stat_fontsize sizes the correlation, mean and variance; fontsize does not change them."""
+    plt.close('all')
+    x, y, _, _ = _two_sets()
+    ax = gs.cross_plot(x, y, mc='C0', stat_fontsize=17)
+    assert ax.texts[0].get_fontsize() == 17
+    assert [t.get_fontsize() for t in ax.histx.texts + ax.histy.texts] == [17, 17]
+    plt.close('all')
+    with pytest.raises(ValueError, match='stat_fontsize'):
+        gs.cross_plot(x, y, mc='C0', stat_fontsize=-1)
+    assert len(plt.get_fignums()) == 0
+
+
+def test_cross_plot_stat_blk_chooses_the_statistics():
+    """all writes every statistic, minimal only the correlation, a list the ones named, none nothing."""
+    plt.close('all')
+    x, y, _, _ = _two_sets()
+
+    def written(**kw):
+        ax = gs.cross_plot(x, y, mc='C0', **kw)
+        return [t.get_text() for t in ax.texts], [t.get_text() for t in ax.histx.texts + ax.histy.texts]
+    rho = r'$\rho = %.3f$' % np.corrcoef(x, y)[0, 1]
+    assert written() == (['n = 60\n' + rho], ['Mean = %.2f\nVar = %.2f' % (x.mean(), x.var()),
+                                              'Mean = %.2f\nVar = %.2f' % (y.mean(), y.var())])
+    assert written(stat_blk='minimal') == ([rho], [])
+    assert written(stat_blk=['mean']) == ([], ['Mean = %.2f' % x.mean(), 'Mean = %.2f' % y.mean()])
+    assert written(stat_blk='none') == ([], []) and written(stat_blk=False) == ([], [])
+    plt.close('all')
+    with pytest.raises(ValueError, match="'median' is not a valid stat_blk"):
+        gs.cross_plot(x, y, mc='C0', stat_blk=['median'])
+    assert len(plt.get_fignums()) == 0
+
 def _gt_twin(ax):
     """The axis of the grades, which shares the x axis with the one of the tonnages"""
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
