@@ -255,9 +255,9 @@ def correlation_matrix_plot(correlation_data, figsize=None, ax=None, cax=None, t
         ax.set(xlim=(0, nx - 1), ylim=(0, ny - 1))
         xticklocs = np.arange(nx - 1)
         yticklocs = np.arange(ny - 1)
-        # Trim the labels
+        # Trim the labels: the plot keeps the rows below the first and the columns left of the last
         if isinstance(xlabels, list):
-            xlabels = xlabels[1:]
+            xlabels = xlabels[:-1]
         if isinstance(ylabels, list):
             ylabels = ylabels[1:]
     else:
