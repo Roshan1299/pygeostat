@@ -2505,6 +2505,46 @@ def test_scatter_plot_3d_several_data_sets_errors_leave_no_figure():
     assert len(plt.get_fignums()) == 0
 
 
+def test_scatter_plot_3d_log_axes():
+    """A log axis shows the log10 of the values with the values as tick labels; limits are given as values."""
+    plt.close('all')
+    data = pd.DataFrame({'a': [0.1, 1., 10., 100.], 'b': [1., 2., 3., 4.], 'c': [1., 10., 100., 1000.]})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', logx=True, logz=True, xlim=(0.01, 1000))
+    ax.figure.canvas.draw()
+    np.testing.assert_allclose(ax.get_xlim(), (-2, 3))
+    np.testing.assert_allclose(sorted(ax.collections[0]._offsets3d[0]), np.log10(data['a']))  # the points are log10
+    np.testing.assert_allclose(sorted(ax.collections[0]._offsets3d[1]), data['b'])  # b is not
+    assert [t.get_text() for t in ax.xaxis.get_ticklabels()] == ['0.01', '0.1', '1', '10', '100', '1000']
+    assert [t.get_text() for t in ax.zaxis.get_ticklabels()] == ['1', '10', '100', '1000']  # a range of over 3 decades
+    assert '.' in ''.join(t.get_text() for t in ax.yaxis.get_ticklabels())  # the other axis is as before
+    plt.close('all')
+    with pytest.raises(ValueError, match="log scale of 'a' needs values above zero"):
+        gs.scatter_plot_3d(data.assign(a=[0., 1, 2, 3]), 'a', 'b', 'c', logx=True)
+    with pytest.raises(ValueError, match='lower limit of a log scale'):
+        gs.scatter_plot_3d(data, 'a', 'b', 'c', logx=True, xlim=(0, 10))
+    assert len(plt.get_fignums()) == 0
+
+
+def test_scatter_plot_3d_log_ticks_for_a_short_range():
+    """A range of less than three decades gets ticks at 1, 2 and 5 times the powers of ten."""
+    from pygeostat.plotting.scatter_plot_3d import _log_ticks
+    positions, labels = _log_ticks(np.log10(0.8), np.log10(60))
+    assert labels == ['1', '2', '5', '10', '20', '50']
+    np.testing.assert_allclose(positions, np.log10([1, 2, 5, 10, 20, 50]))
+    assert _log_ticks(np.log10(1.1), np.log10(3.9))[1] == ['2', '3']
+
+
+def test_scatter_plot_3d_log_axis_of_a_very_narrow_range_still_has_ticks():
+    """A range with no 1, 2 or 5 times a power of ten in it is labelled at its two ends."""
+    plt.close('all')
+    data = pd.DataFrame({'a': [1.01, 1.015, 1.02], 'b': [1., 2., 3.], 'c': [1., 2., 3.]})
+    ax = gs.scatter_plot_3d(data, 'a', 'b', 'c', logx=True)
+    ax.figure.canvas.draw()
+    labels = [t.get_text() for t in ax.xaxis.get_ticklabels()]
+    assert len(labels) == 2 and 1.0 <= float(labels[0]) <= 1.02 and 1.0 <= float(labels[1]) <= 1.03
+    plt.close('all')
+
+
 def _secondary_twin(ax):
     return [a for a in ax.figure.axes if a is not ax and a.get_shared_x_axes().joined(a, ax)][0]
 

@@ -11,7 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, is_color_like
 from matplotlib.lines import Line2D
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FixedFormatter, FixedLocator, MaxNLocator
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from .export_image import export_image
 from .set_style import set_plot_style
@@ -20,12 +20,29 @@ from ..pygeostat_parameters import Parameters
 _DATASET = '_dataset'  # the column that tells the data sets of a list apart
 
 
+def _log_ticks(lo, hi):
+    """Positions (as log10) and labels of the ticks of a log axis between the log10 values ``lo`` and ``hi``: 1, 2
+    and 5 times the powers of ten, or every whole number if that is fewer than three ticks, or only the powers of
+    ten for a range of more than three decades. For a range with fewer than two of them, the two ends"""
+    decades = np.arange(np.floor(lo), np.ceil(hi) + 1)
+    options = [(1,)] if hi - lo > 3 else [(1, 2, 5), tuple(range(1, 10))]
+    for steps in options:
+        values = np.array([m * 10.0 ** d for d in decades for m in steps])
+        values = values[(np.log10(values) >= lo - 1e-9) & (np.log10(values) <= hi + 1e-9)]
+        if len(values) >= 3:
+            break
+    if len(values) < 2:  # a range too narrow for any of those: the two ends
+        return np.array(sorted({lo, hi})), ['%.3g' % 10.0 ** v for v in sorted({lo, hi})]
+    return np.log10(values), ['%g' % v for v in values]
+
+
 @set_plot_style
 def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, colors=None, s=None,
                     alpha=None, cmap=None, clim=None, cbar=True, drop_lines=False, xlabel=None,
                     ylabel=None, zlabel=None, title=None, labels=None,
-                    elev=25, azim=-60, grid=True, figsize=None, ax=None, plot_style=None,
-                    custom_style=None, output_file=None, **kwargs):
+                    elev=25, azim=-60, grid=True, xlim=None, ylim=None, zlim=None,
+                    logx=False, logy=False, logz=False, figsize=None, ax=None,
+                    plot_style=None, custom_style=None, output_file=None, **kwargs):
     """
     Plot three variables of a data set against each other in a 3D scatter plot, for example the gold,
     copper and silver grades of the same samples. The variables are the axes, not the coordinates of
@@ -73,6 +90,10 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         elev (float): elevation of the viewing angle in degrees
         azim (float): azimuth of the viewing angle in degrees
         grid (bool): plots the major grid lines if True
+        xlim, ylim, zlim (tuple): ``(lower, upper)`` limits of an axis. The range of the data if None
+        logx, logy, logz (bool): log scale for an axis, for a very skewed variable. The values must be above
+            zero. The axis is drawn as the log10 of the values, with ticks at 1, 2 and 5 times the powers of ten,
+            and the limits and the statistics are of the values
         figsize (tuple): figure size (width, height), if creating a new figure when ``ax`` is None.
             If None, ``gs.Parameters['plotting.scatter_plot_3d.figsize']``
         ax (ax): Matplotlib 3D axis to plot on (made with ``projection='3d'``)
@@ -154,6 +175,16 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
     table = data[used].dropna()
     if table.empty:
         raise ValueError("No row has a value in all of %s" % ', '.join(repr(u) for u in used))
+    logs = (logx, logy, logz)
+    for name, log, lim in zip(axes, logs, (xlim, ylim, zlim)):
+        if log and not (table[name] > 0).all():
+            raise ValueError("The log scale of %r needs values above zero" % name)
+        if log and lim is not None and len(lim) == 2 and lim[0] <= 0:
+            raise ValueError("The lower limit of a log scale must be above zero")
+    table = table.copy()
+    for name, log in zip(axes, logs):
+        if log:
+            table[name] = np.log10(table[name])
     groups = [(None, table)]
     if cat is not None:
         groups = [(value, rows) for value, rows in table.groupby(cat, sort=True, observed=True)]
@@ -200,6 +231,12 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         if cat is not None:
             handles.append(Line2D([], [], ls='', marker=marker, mfc=colors[i] if by_color else (c if colour_var is None and c is not None else shape_color),
                                   mec=edge, mew=0.4, label=_name(value)))
+    for name, lim, setter, log in (('xlim', xlim, ax.set_xlim, logx), ('ylim', ylim, ax.set_ylim, logy),
+                                   ('zlim', zlim, ax.set_zlim, logz)):
+        if lim is not None:
+            if len(lim) != 2:
+                raise ValueError('{} must be (lower, upper), not {}'.format(name, lim))
+            setter(np.log10(lim) if log else lim)
     if drop_lines:
         floor = ax.get_zlim()[0]
         ax.add_collection3d(Line3DCollection([((px, py, floor), (px, py, pz)) for px, py, pz in
@@ -218,6 +255,11 @@ def scatter_plot_3d(data, x, y, z, c=None, cat=None, cat_as=None, markers=None, 
         axis.set_major_locator(MaxNLocator(nbins=5))
         axis.labelpad = 6
         axis.set_label_text(name if label is None else label, fontsize=size)
+    for axis, log, limits in zip((ax.xaxis, ax.yaxis, ax.zaxis), logs, (ax.get_xlim(), ax.get_ylim(), ax.get_zlim())):
+        if log:
+            positions, names = _log_ticks(*limits)
+            axis.set_major_locator(FixedLocator(positions))
+            axis.set_major_formatter(FixedFormatter(names))
     if title is not None:
         ax.set_title(title)
     ax.view_init(elev=elev, azim=azim)
