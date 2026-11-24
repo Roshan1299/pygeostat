@@ -1777,6 +1777,83 @@ def test_cross_plot_stat_blk_chooses_the_statistics():
         gs.cross_plot(x, y, mc='C0', stat_blk=['median'])
     assert len(plt.get_fignums()) == 0
 
+def _clip_grid():
+    grid = gs.GridDef([4, 0.5, 1, 4, 0.5, 1, 1, 0.5, 1])  # cell centres 0.5, 1.5, 2.5, 3.5
+    return gs.DataFile(data=pd.DataFrame({'v': np.arange(16.)}), griddef=grid)
+
+
+def test_clip_plot_cells_by_centre():
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]  # holds the centres 1.5 and 2.5 only
+    ax = gs.clip_plot(_clip_grid(), square, var='v', cbar=False)
+    shown = ax.images[0].get_array()
+    assert np.isfinite(shown).sum() == 4
+    assert np.isfinite(shown[1:3, 1:3]).all()  # the rows with y 1.5 and 2.5, the columns with x 1.5 and 2.5
+    plt.close('all')
+
+
+def test_clip_plot_hull_and_polygon_file(tmp_path):
+    points = pd.DataFrame({'X': [0.4, 3.6, 3.6, 0.4, 2.0], 'Y': [0.4, 0.4, 3.6, 3.6, 2.0]})
+    hull = gs.convex_hull(points['X'], points['Y'])
+    assert len(hull) == 5 and (hull[0] == hull[-1]).all()  # four corners, the interior point is left out
+    ax = gs.clip_plot(_clip_grid(), 'hull', var='v', points=points, x='X', y='Y', cbar=False)
+    assert np.isfinite(ax.images[0].get_array()).sum() == 16  # the hull holds every cell centre
+    path = tmp_path / 'boundary.dat'
+    path.write_text('polygon\n2\nx\ny\n0.9 0.9\n3.1 0.9\n3.1 3.1\n0.9 3.1\n')
+    ax = gs.clip_plot(_clip_grid(), str(path), var='v', cbar=False)
+    assert np.isfinite(ax.images[0].get_array()).sum() == 4
+    plt.close('all')
+
+
+def test_clip_plot_errors():
+    with pytest.raises(ValueError, match='points'):
+        gs.clip_plot(_clip_grid(), 'hull', var='v')
+    with pytest.raises(ValueError, match='three corners'):
+        gs.clip_plot(_clip_grid(), [[0, 0], [1, 1]], var='v')
+    with pytest.raises(ValueError, match='rows'):
+        gs.clip_plot(pd.DataFrame({'v': [1., 2.]}), [[0, 0], [1, 0], [1, 1]], griddef=_clip_grid().griddef, var='v')
+    plt.close('all')
+
+
+def test_clip_plot_points_without_value_and_csv(tmp_path):
+    points = pd.DataFrame({'X': [0.4, 3.6, 3.6, 0.4, 2.0], 'Y': [0.4, 0.4, 3.6, 3.6, 2.0]})
+    ax = gs.clip_plot(_clip_grid(), 'hull', var='v', points=points, x='X', y='Y', cbar=False)
+    dots = ax.collections[-1]
+    assert len(dots.get_offsets()) == 5 and tuple(dots.get_facecolor()[0][:3]) == (0., 0., 0.)
+    assert ax.get_xlim() == (0.0, 4.0)  # the dots do not change the extent of the grid
+    csv = tmp_path / 'boundary.csv'
+    csv.write_text('x,y\n0.9,0.9\n3.1,0.9\n3.1,3.1\n0.9,3.1\n')
+    ax = gs.clip_plot(_clip_grid(), str(csv), var='v', cbar=False)
+    assert np.isfinite(ax.images[0].get_array()).sum() == 4
+    with pytest.raises(ValueError, match='one line'):
+        gs.convex_hull([0, 1, 2], [0, 1, 2])
+    plt.close('all')
+
+
+def test_clip_plot_default_title_and_colour_bar_label_name_the_variable():
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
+    ax, colorbar = gs.clip_plot(_clip_grid(), square, var='v', return_cbar=True)
+    assert ax.get_title() == 'v Clipped to the Boundary'
+    assert colorbar.ax.get_ylabel() == 'v'
+    points = pd.DataFrame({'X': [0.4, 3.6, 3.6, 0.4, 2.0], 'Y': [0.4, 0.4, 3.6, 3.6, 2.0]})
+    ax = gs.clip_plot(_clip_grid(), 'hull', var='v', points=points, x='X', y='Y')
+    assert ax.get_title() == 'v Clipped to the Convex Hull'
+    # what the user gives is kept, and False removes the title
+    ax, colorbar = gs.clip_plot(_clip_grid(), square, var='v', title='Zinc', cbar_label='Zn (ppm)', return_cbar=True)
+    assert ax.get_title() == 'Zinc' and colorbar.ax.get_ylabel() == 'Zn (ppm)'
+    assert gs.clip_plot(_clip_grid(), square, var='v', title=False).get_title() == ''
+    assert gs.clip_plot(_clip_grid(), square, var='v', title=None).get_title() == 'v Clipped to the Boundary'
+    plt.close('all')
+
+
+def test_clip_plot_colour_bar_label_is_as_large_as_its_tick_labels():
+    square = [[0.9, 0.9], [3.1, 0.9], [3.1, 3.1], [0.9, 3.1]]
+    ax, colorbar = gs.clip_plot(_clip_grid(), square, var='v', return_cbar=True)
+    assert colorbar.ax.yaxis.label.get_size() == colorbar.ax.yaxis.get_ticklabels()[0].get_size()
+    # without a colour bar the plot is returned alone, and a colour bar is not asked for
+    ax = gs.clip_plot(_clip_grid(), square, var='v', cbar=False)
+    assert not isinstance(ax, tuple)
+    plt.close('all')
+
 
 def _hull_by_brute_force(xy):
     """The corners of the convex hull found without a hull routine: a pair of points is an edge of the
