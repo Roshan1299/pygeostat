@@ -70,6 +70,13 @@ def test_load_gslib_attributes():
     assert dat.y.lower() == 'north'
     assert dat.z.lower() == 'elevation'
 
+def test_oilsands_kt3dn_has_an_estimate_for_every_block():
+    """The kriged oil sands example fills its whole 34 x 60 x 14 grid."""
+    grid = GridDef([34, 612, 100, 60, 5055, 100, 14, 146, 10])
+    dat = ExampleData('oilsands_kt3dn', griddef=grid)
+    assert list(dat.data.columns) == ['Estimate', 'EstimationVariance']
+    assert len(dat.data) == grid.count() and not dat.data.isna().any().any()
+
 # Skiping the test if not using windows.
 ## To remove if binary files are compiled for Linux
 @pytest.mark.skipif("platform.system() != 'Windows'", 

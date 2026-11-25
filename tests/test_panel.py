@@ -48,14 +48,12 @@ def test_panel_lists_the_layers(viewer):
 
 
 def test_panel_controls_change_the_viewer(viewer):
-    """The checkbox and slider of the page call the handlers, which change the layer in the
-    viewer and the page."""
+    """The checkbox of the page calls the handler, which changes the layer in the viewer and the page."""
     panel = viewer.panel()
     triggered(panel, panel.set_visible)('Estimate', False)
-    triggered(panel, panel.set_opacity)('value', 0.25)
-    blocks, points = [layer.actor for layer in viewer._layers]
-    assert not points.visibility and blocks.prop.opacity == 0.25
-    assert rows(panel) == [('value', True, 0.25), ('Estimate', False, 1.0)]
+    points = viewer._layers[1].actor
+    assert not points.visibility
+    assert rows(panel) == [('value', True, 1.0), ('Estimate', False, 1.0)]
 
 
 def test_panel_without_trame_says_what_to_install(viewer, monkeypatch):
@@ -322,6 +320,32 @@ def test_panel_slicer_follows_the_slider_while_it_moves(viewer, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_panel_opacity_follows_the_slider_as_it_is_dragged(viewer):
+    """The opacity slider is a plain value of the page per layer, so the layer changes at every
+    step of the drag, and the slider is not told a value by the server while it is dragged. It
+    follows the viewer when a script sets the opacity."""
+    import asyncio
+    panel = viewer.panel()
+    slider = re.search(r'<VSlider[^>]*Opacity[^>]*>', panel.layout.html).group(0)
+    assert 'v-model="opacity_ui[layer.name]"' in slider
+    # The page does not send a value that is set inside a dict by itself, so the slider sends it
+    assert '''@update:modelValue="flushState('opacity_ui')"''' in slider
+    assert panel.state.opacity_ui == {'value': 1.0, 'Estimate': 1.0}
+    blocks = viewer._layers[0].actor
+
+    async def scenario():
+        await panel.layout.ready
+        for opacity in (0.9, 0.62, 0.33, 0.8, 0.0):
+            await drag(panel, opacity_ui={'value': opacity, 'Estimate': 1.0})
+            assert blocks.prop.opacity == opacity and viewer._layers[0].kwargs['opacity'] == opacity
+            assert panel.state.opacity_ui == {'value': opacity, 'Estimate': 1.0}
+        assert viewer._layers[1].actor.prop.opacity == 1.0
+        viewer.set_layer('Estimate', opacity=0.4)
+        assert panel.state.opacity_ui == {'value': 0.0, 'Estimate': 0.4}
+        await panel.server.stop()
+    asyncio.run(scenario())
+
+
 def test_panel_vertical_exaggeration_follows_the_slider(viewer):
     """The slider is a plain value of the page that stretches the scene as it moves, and it
     follows the viewer when a script sets the exaggeration."""
@@ -476,7 +500,7 @@ def test_panel_colormap_and_cell_edges(viewer):
 
 
 def test_panel_tube_radius(viewer):
-    """The radius slider of a drill hole layer draws the tubes again when it is let go, from a quarter
+    """The radius slider of a drill hole layer draws the tubes again as it is dragged, from a quarter
     to four times the radius the layer had; the page follows a script, even past that range."""
     import asyncio
     viewer.set_layer('Estimate', visible=False)
@@ -487,14 +511,13 @@ def test_panel_tube_radius(viewer):
     assert rows['value']['radius'] is None and rows['Bitumen']['radius'] == 8.0
     assert rows['Bitumen']['radius_range'] == [2.0, 32.0, 2.0] and state.radius_ui == {'Bitumen': 8.0}
     slider = re.search(r'<VSlider[^>]*Tube radius[^>]*>', panel.layout.html).group(0)
-    assert 'v-model="radius_ui[layer.name]"' in slider and '@end=' in slider and '@keyup=' in slider
+    assert 'v-model="radius_ui[layer.name]"' in slider and '''@update:modelValue="flushState('radius_ui')"''' in slider
 
     async def scenario():
         await panel.layout.ready
-        triggered(panel, panel.set_radius)('Bitumen', 12)
-        assert viewer._layers[2].radius == 12.0 and state.radius_ui == {'Bitumen': 12.0}
-        triggered(panel, panel.set_radius)('Bitumen', 'wide')
-        assert "'wide' is not a number" in state.message and viewer._layers[2].radius == 12.0
+        for radius in (12.0, 20.0, 6.5):
+            await drag(panel, radius_ui={'Bitumen': radius})
+            assert viewer._layers[2].radius == radius and state.radius_ui == {'Bitumen': radius}
         viewer.set_layer('Bitumen', radius=100)
         assert state.layers[2]['radius_range'] == [2.0, 100.0, 2.0] and state.radius_ui == {'Bitumen': 100.0}
         await panel.server.stop()

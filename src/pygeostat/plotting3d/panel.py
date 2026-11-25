@@ -98,6 +98,8 @@ class Panel:
 		self.state.change(*['slicer_origin_{}'.format(i) for i in range(3)],
 						  *['slicer_normal_{}'.format(i) for i in range(3)], 'slicer_tolerance')(
 			self._on_slicer_sliders)
+		self.state.change('opacity_ui')(self._on_opacity_sliders)
+		self.state.change('radius_ui')(self._on_radius_sliders)
 		self.state.change('vertical_exaggeration')(self._on_vertical_exaggeration)
 		self.state.change('background')(self._on_background)
 		self.state.change('outline_visible', 'ruler_visible', 'axis_arrows', 'axes_visible')(self._on_scene)
@@ -126,9 +128,11 @@ class Panel:
 						vuetify3.VCheckbox(label=('layer.name',), model_value=('layer.visible',),
 										   update_modelValue=(self.set_visible, '[layer.name, $event]'),
 										   density='compact', hide_details=True)
-						vuetify3.VSlider(label='Opacity', model_value=('layer.opacity',), min=0, max=1, step=0.05,
+						# The sliders of a layer are plain values of the page, sent at every step of a move (a value
+						# set inside a dict is not sent by itself) and followed by the server, like the slicer's
+						vuetify3.VSlider(label='Opacity', v_model=('opacity_ui[layer.name]',), min=0, max=1, step=0.01,
 										 density='compact', hide_details=True, thumb_label=True,
-										 update_modelValue=(self.set_opacity, '[layer.name, $event]'))
+										 update_modelValue="flushState('opacity_ui')")
 						# Values tied to the data are typed, with the data's own range in the label
 						vuetify3.VSelect(v_if='layer.color_options.length > 1', label='Colour by',
 										 model_value=('layer.color_by',), items=('layer.color_options',),
@@ -165,13 +169,10 @@ class Panel:
 							vuetify3.VBtn('Show all', size='small', variant='text', prepend_icon='mdi-eye',
 										  classes='mt-1', disabled=('layer.categories.length === 0',),
 										  click=(self.show_all_categories, '[layer.name]'))
-						# The tubes are drawn again when the slider is let go, not at every step of its move
 						vuetify3.VSlider(v_if='layer.radius !== null', label='Tube radius', v_model=('radius_ui[layer.name]',),
 										 min=('layer.radius_range[0]',), max=('layer.radius_range[1]',),
 										 step=('layer.radius_range[2]',), density='compact', hide_details=True,
-										 thumb_label=True, classes='mt-2',
-										 end=(self.set_radius, '[layer.name, $event]'),
-										 keyup=(self.set_radius, '[layer.name, radius_ui[layer.name]]'))
+										 thumb_label=True, classes='mt-2', update_modelValue="flushState('radius_ui')")
 						with html.Div(v_if='layer.clim', classes='mt-2'):
 							html.Div('Colour limits', classes='text-caption')
 							with html.Div(classes='d-flex ga-2'):
@@ -315,6 +316,7 @@ class Panel:
 		changed, so the page follows a script."""
 		self._clear_pick()
 		self.state.layers = [self._row(layer) for layer in self.viewer._layers]
+		self.state.opacity_ui = {layer.name: float(layer.kwargs.get('opacity', 1.0)) for layer in self.viewer._layers}
 		self.state.radius_ui = {layer.name: layer.radius for layer in self.viewer._layers if layer.radius is not None}
 		slicer = self.viewer._slicer
 		lower, upper = _corners(self.viewer._extents) if self.viewer._extents else ([0.0] * 3, [1.0] * 3)
@@ -475,10 +477,6 @@ class Panel:
 		"""Show or hide a layer, like ``Viewer.set_layer(name, visible=...)``"""
 		self.viewer.set_layer(name, visible=visible)
 
-	def set_opacity(self, name, opacity):
-		"""Set the opacity of a layer, like ``Viewer.set_layer(name, opacity=...)``"""
-		self.viewer.set_layer(name, opacity=opacity)
-
 	def _cmap_items(self):
 		"""The list of colormaps in the page: groups under their names, each colormap with a preview
 		bar drawn from the colours pyvista gives it. A colormap in the scene that is not in a group
@@ -521,10 +519,6 @@ class Panel:
 			first = self._radius_ranges.setdefault(layer.name, layer.radius)
 			row['radius_range'] = [first / 4, max(4 * first, layer.radius), first / 4]
 		return row
-
-	def set_radius(self, name, radius):
-		"""Set the radius of the tubes of a drill hole layer, like ``Viewer.set_layer(name, radius=...)``"""
-		self._try(name, lambda: {'radius': _number(radius)})
 
 	def _palette_items(self, n):
 		"""The palettes that have colours for ``n`` categories, in groups, each with a preview of its
@@ -618,6 +612,20 @@ class Panel:
 		tolerance = float(state.slicer_tolerance)
 		if (origin, normal, tolerance) != (tuple(self._slicer_origin()), slicer['normal'], slicer['tolerance']):
 			self._guard(lambda: self.viewer.set_slicer(origin=origin, normal=normal, tolerance=tolerance))
+
+	def _on_opacity_sliders(self, opacity_ui, **changed):
+		"""An opacity slider moved: set the opacity of that layer, as the slider is dragged"""
+		for layer in self.viewer._layers:
+			value = float(opacity_ui[layer.name])
+			if value != layer.kwargs.get('opacity', 1.0):
+				self._try(layer.name, lambda: {'opacity': value})
+
+	def _on_radius_sliders(self, radius_ui, **changed):
+		"""A tube radius slider moved: draw the tubes of that layer again, as the slider is dragged"""
+		for layer in self.viewer._layers:
+			if layer.radius is not None and float(radius_ui[layer.name]) != layer.radius:
+				value = float(radius_ui[layer.name])
+				self._try(layer.name, lambda: {'radius': value})
 
 	def _on_vertical_exaggeration(self, vertical_exaggeration, **changed):
 		"""The slider moved: stretch the scene with its value, as the slider is dragged"""

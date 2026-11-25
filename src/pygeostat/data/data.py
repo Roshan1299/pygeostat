@@ -1603,6 +1603,8 @@ def ExampleData(testfile, griddef=None, **kwargs):
 		* "grid2d_surf": 'Thickness' from 'point2d_surf' interpolated on the grid
 		* "point3d_ind_mv": 3d multivariate and indicator dataset
 		* "oilsands": 3D Oil sands data set
+		* "oilsands_kt3dn": kriged estimate of the oil sands data set, every block of the 34 x 60 x 14 grid
+		  ``GridDef([34, 612, 100, 60, 5055, 100, 14, 146, 10])``
 		* "accuracy_plot": Simulated realizations to test accuracy plot
 		* "location_plot": 2D data set to test location plot
 		* "3d_grid": 3D gridded data set
@@ -1627,6 +1629,7 @@ def ExampleData(testfile, griddef=None, **kwargs):
 		'accuracy_plot': 'accuracy_plot.dat',
 		'location_plot': 'location_plot.dat',
 		'oilsands': 'oilsands.dat',
+		'oilsands_kt3dn': 'oilsands_kt3dn.out',
 		'point2d_mv': 'point2d_mv.dat',
 		'3d_correlation': '3d_correlation.dat',
 		'3d_estimate': '3d_estimate.out',
