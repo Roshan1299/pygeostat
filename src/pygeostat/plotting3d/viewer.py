@@ -488,17 +488,18 @@ class Viewer:
 		"""The colour bar arguments with a position of its own, where PyVista would put the bar in
 		its next free place. PyVista takes a bar down with the layer it was made for only if it
 		chose the place itself, so a bar with a position stays while the slicer redraws the layer,
-		instead of a new bar being made at every move"""
-		import pyvista as pv
+		instead of a new bar being made at every move. The bars are stacked at the right of the
+		window, the first at the top; a fourth bar starts a new column to the left"""
 		from pyvista.plotting.scalar_bars import MAX_N_COLOR_BARS
-		theme = pv.global_theme.colorbar_vertical
 		slot = self._bar_slots.setdefault(bar_args['title'], len(self._bar_slots))
 		if slot >= MAX_N_COLOR_BARS:
 			raise RuntimeError("There is room for {} colour bars, name fewer variables or labels".format(
 				MAX_N_COLOR_BARS))
-		return {'color': _BACKGROUNDS[self._background][1], **bar_args, 'vertical': True,
-				'width': theme.width, 'height': theme.height, 'position_x': theme.position_x - slot * (theme.width + 0.2 * theme.width),
-				'position_y': theme.position_y}
+		column, row = divmod(slot, len(_BAR_ROWS))
+		position_y, height, n_labels = _BAR_ROWS[row]
+		return {'color': _BACKGROUNDS[self._background][1], 'n_labels': n_labels, 'title_font_size': 14,
+				'label_font_size': 12, **bar_args, 'vertical': True, 'width': 0.08, 'height': height,
+				'position_x': 0.88 - column * 0.12, 'position_y': position_y}
 
 	def _keep_clim(self, layer):
 		"""Put the colour limits of a layer back on its colour bar. A bar that is reused is widened
@@ -1248,6 +1249,10 @@ def _corners(extents):
 	import numpy as np
 	bounds = np.array(extents, dtype=float).reshape(-1, 3, 2)
 	return bounds[:, :, 0].min(axis=0), bounds[:, :, 1].max(axis=0)
+
+
+# Where the colour bars stack at the right of the window: (position_y, height, number of labels) of each row
+_BAR_ROWS = ((0.52, 0.43, 5), (0.29, 0.18, 3), (0.06, 0.16, 3))
 
 
 # The camera of each view of :meth:`Viewer.set_camera_view`: the direction pyvista looks along, whether

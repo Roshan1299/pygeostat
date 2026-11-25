@@ -1177,13 +1177,29 @@ def test_slicer_moves_keep_the_holes_on_the_slice_in_place(two_holes):
 
 
 def test_colour_bars_of_different_titles_have_their_own_places(grid3d):
-    """Each colour bar gets its own place, side by side, so bars of several layers do not overlap."""
+    """Each colour bar gets its own place, stacked at the right with the first at the top, so bars of several layers do not overlap."""
     data, griddef = grid3d
     viewer = gs.view3d(data, 'value', griddef=griddef, viewer=gs.Viewer(off_screen=True))
     gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer)
     gs.view3d(data, 'value', griddef=griddef, viewer=viewer)          # a second layer with the same title
-    first, second = (viewer.plotter.scalar_bars[t].GetPosition() for t in ('value', 'Estimate'))
-    assert first[0] != second[0] and list(viewer.plotter.scalar_bars.keys()) == ['value', 'Estimate']
+    bars = [viewer.plotter.scalar_bars[t] for t in ('value', 'Estimate')]
+    (x1, y1), (x2, y2) = (bar.GetPosition() for bar in bars)
+    h1, h2 = (bar.GetPosition2()[1] for bar in bars)
+    assert list(viewer.plotter.scalar_bars.keys()) == ['value', 'Estimate']
+    # One column at the right, the first bar on top and the second below it, not touching
+    assert x1 == x2 == pytest.approx(0.88) and y1 > y2 + h2 and y1 + h1 <= 1
+
+
+def test_colour_bars_stack_in_three_rows_and_then_start_a_new_column():
+    """The fourth colour bar is at the top of a column to the left of the first three."""
+    viewer = gs.Viewer(off_screen=True)
+    for i in range(4):
+        mesh = pv.Sphere(center=(i * 3, 0, 0), radius=1)
+        mesh.cell_data['v{}'.format(i)] = np.arange(mesh.n_cells, dtype=float)
+        gs.view3d(mesh, 'v{}'.format(i), viewer=viewer)
+    places = [viewer.plotter.scalar_bars['v{}'.format(i)].GetPosition() for i in range(4)]
+    assert [round(x, 2) for x, _ in places] == [0.88, 0.88, 0.88, 0.76]
+    assert places[0][1] > places[1][1] > places[2][1] and places[3][1] == places[0][1]
 
 
 def test_colour_bars_stop_at_the_room_there_is():
