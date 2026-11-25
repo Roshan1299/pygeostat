@@ -1661,6 +1661,33 @@ def test_set_layer_color_by(coloured_holes):
     assert 'code' not in viewer.plotter.scalar_bars.keys()
 
 
+def test_colour_bar_keeps_its_place_when_the_layer_is_coloured_by_another_variable(coloured_holes):
+    """The bar of a layer that is coloured by another variable takes the place of the bar it had,
+    each time, and a bar of another layer stays where it is."""
+    viewer = coloured_holes
+    gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer)
+    bars = viewer.plotter.scalar_bars
+    first, second = (bars[title].GetPosition() for title in ('Au', 'Estimate'))
+    for variable in ('Cu', 'code', 'Au', 'Cu'):
+        viewer.set_layer('Au', color_by=variable)
+        assert bars[variable].GetPosition() == first and bars['Estimate'].GetPosition() == second
+    assert sorted(bars.keys()) == ['Cu', 'Estimate']
+    # The title it had is free again: a new layer with that title does not land on the bar of 'Cu'
+    gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer, label='Au')
+    assert bars['Au'].GetPosition() not in (first, second)
+
+
+def test_a_bar_shared_by_two_layers_stays_when_one_is_coloured_by_another_variable(coloured_holes):
+    """Colouring one of two layers that share a bar title leaves the bar where it is, and the
+    layer's new bar gets the next place."""
+    viewer = coloured_holes
+    gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer, label='Au')
+    bars = viewer.plotter.scalar_bars
+    before = bars['Au'].GetPosition()
+    viewer.set_layer('Au', color_by='Cu')
+    assert bars['Au'].GetPosition() == before and bars['Cu'].GetPosition()[1] < before[1]
+
+
 def test_set_layer_color_by_refuses_other_names(coloured_holes):
     """A name the layer cannot be coloured by is refused with the names it can, and changes nothing."""
     viewer = coloured_holes

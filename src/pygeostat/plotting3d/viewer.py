@@ -414,10 +414,16 @@ class Viewer:
 			layer.data_range = data_range
 		kept = {key: value for key, value in layer.kwargs.items() if key not in (
 			'scalars', 'cmap', 'clim', 'annotations', 'n_colors', 'scalar_bar_args')}
+		# The bar of the variable it had goes if no other layer uses it, and the new bar takes its place
+		# (not the next free one, which would move the bar to the left at every other variable)
+		left = old != title and not any(
+			other.kwargs.get('scalar_bar_args', {}).get('title') == old for other in self._layers if other is not layer)
+		if left and title not in self._bar_slots:
+			self._bar_slots[title] = self._bar_slots[old]
 		layer.kwargs = {**kept, **colours, 'scalar_bar_args': self._placed_bar({'title': title})}
 		self._place(layer)
-		if old != title and not any(other.kwargs.get('scalar_bar_args', {}).get('title') == old
-									for other in self._layers):
+		if left:
+			self._bar_slots.pop(old)
 			self.plotter.remove_scalar_bar(old)
 
 	def interval_info(self, name, cell, on_slice=False):
@@ -491,7 +497,10 @@ class Viewer:
 		instead of a new bar being made at every move. The bars are stacked at the right of the
 		window, the first at the top; a fourth bar starts a new column to the left"""
 		from pyvista.plotting.scalar_bars import MAX_N_COLOR_BARS
-		slot = self._bar_slots.setdefault(bar_args['title'], len(self._bar_slots))
+		if bar_args['title'] not in self._bar_slots:
+			self._bar_slots[bar_args['title']] = next(i for i in range(len(self._bar_slots) + 1)
+													   if i not in self._bar_slots.values())
+		slot = self._bar_slots[bar_args['title']]
 		if slot >= MAX_N_COLOR_BARS:
 			raise RuntimeError("There is room for {} colour bars, name fewer variables or labels".format(
 				MAX_N_COLOR_BARS))
