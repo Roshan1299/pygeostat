@@ -24,8 +24,9 @@ class _Source:
 		# The title of the colour bar of each variable
 		self.titles = {} if titles is None else titles
 
-	def cut(self, threshold, section, plane=None, categories=None):
-		"""The part of the mesh in the threshold (min, max of the variable) and in the slice
+	def cut(self, threshold, section, plane=None, categories=None, var=None):
+		"""The part of the mesh in the threshold (min, max of ``var``, which is the variable of the
+		source if None) and in the slice
 		(a dictionary of the slice arguments of view3d), whole if either is None. With
 		``categories`` (category indexes), only the cells of those categories. With a plane (a
 		dictionary with its ``origin`` and ``normal``), only the cut through that plane"""
@@ -34,7 +35,7 @@ class _Source:
 		if threshold is not None:
 			if self.var is None:
 				raise ValueError("`threshold` needs a variable `var`")
-			mesh = mesh.threshold(threshold, scalars=self.var)
+			mesh = mesh.threshold(threshold, scalars=var or self.var)
 		if section is not None:
 			mesh = _slice(mesh, self.griddef, **section)
 		if categories is not None:
@@ -71,8 +72,7 @@ class _Layer:
 		self.crossing = None
 		self.crossing_actor = None
 		self.source = source
-		# The variable the layer is coloured by, which :meth:`Viewer.set_layer` can change. The
-		# threshold keeps using the variable the layer was made with
+		# The variable the layer is coloured by, which :meth:`Viewer.set_layer` can change
 		self.color_var = None if source is None else source.var
 		# The names of the categories shown when the layer is coloured by categories, none for all
 		self.categories = ()
@@ -83,6 +83,19 @@ class _Layer:
 		if data_range is None and 'scalars' in kwargs:
 			data_range = mesh.get_data_range(kwargs['scalars'])
 		self.data_range = data_range
+
+	def threshold_for(self, color_var):
+		"""The variable a threshold cuts when the layer is coloured by ``color_var``: that variable, so
+		that the threshold and the colour bar speak of the same values, unless it has categories, when the
+		variable the layer was made with"""
+		if self.source is None:
+			return None
+		return color_var if self.source.colourings.get(color_var, True) is None else self.source.var
+
+	@property
+	def threshold_var(self):
+		"""The variable the threshold of the layer cuts now"""
+		return self.threshold_for(self.color_var)
 
 	@property
 	def key(self):
@@ -317,12 +330,18 @@ class Viewer:
 			annotations = layer.kwargs.get('annotations') if recolour is None else recolour[2].get('annotations')
 			shown = [i for i, category in annotations.items() if category in new_categories]
 		slice_args = (orient, slice_number, slice_coordinate, slice_thickness, pointtol)
-		cut = threshold is not None or any(v is not None for v in slice_args) or categories is not None
+		# A threshold is in the units of the variable it cuts, so it is taken off when the layer is coloured by
+		# another variable, unless a new one is given
+		new_var = None if layer.source is None else layer.threshold_for(
+			layer.color_var if recolour is None else recolour[0])
+		retarget = layer.threshold is not None and threshold is None and new_var != layer.threshold_var
+		cut = threshold is not None or any(v is not None for v in slice_args) or categories is not None or retarget
 		if cut:
 			if layer.source is None:
 				raise ValueError("Layer '{}' was added as a mesh, so it cannot be thresholded, sliced or "
 								 "filtered by category".format(name))
-			new_threshold = layer.threshold if threshold is None else None if threshold is False else tuple(threshold)
+			new_threshold = None if retarget else layer.threshold if threshold is None else (
+				None if threshold is False else tuple(threshold))
 			if new_threshold is not None and not new_threshold[0] <= new_threshold[1]:
 				raise ValueError("`threshold` must be (min, max) with min not above max")
 			new_section = layer.section
@@ -332,7 +351,7 @@ class Viewer:
 			# threshold or slice that leaves nothing is
 			checked = _Source(layer.source.mesh if recolour is None else recolour[3], layer.source.var,
 							  layer.source.griddef)
-			if checked.cut(new_threshold, new_section, None, shown).n_cells == 0:
+			if checked.cut(new_threshold, new_section, None, shown, var=new_var).n_cells == 0:
 				raise ValueError("Nothing is left of layer '{}' with this threshold, slice and "
 								 "categories".format(name))
 		if recolour is not None:
@@ -425,6 +444,7 @@ class Viewer:
 		if left:
 			self._bar_slots.pop(old)
 			self.plotter.remove_scalar_bar(old)
+			self._arrange_bars()
 
 	def interval_info(self, name, cell, on_slice=False):
 		"""
@@ -477,7 +497,8 @@ class Viewer:
 		"""Draw a layer again from its source, with its threshold, slice and, for blocks, the
 		slicer's plane. A plane that misses the layer leaves nothing to draw."""
 		plane = self._plane() if layer.kind == 'blocks' else None
-		layer.mesh = layer.source.cut(layer.threshold, layer.section, plane, layer.shown_categories)
+		layer.mesh = layer.source.cut(layer.threshold, layer.section, plane, layer.shown_categories,
+									  var=layer.threshold_var)
 		if not layer.mesh.n_cells:
 			if layer.actor is not None:
 				self.plotter.remove_actor(layer.actor)
@@ -494,20 +515,45 @@ class Viewer:
 		"""The colour bar arguments with a position of its own, where PyVista would put the bar in
 		its next free place. PyVista takes a bar down with the layer it was made for only if it
 		chose the place itself, so a bar with a position stays while the slicer redraws the layer,
-		instead of a new bar being made at every move. The bars are stacked at the right of the
-		window, the first at the top; a fourth bar starts a new column to the left"""
+		instead of a new bar being made at every move. The bars share the right side of the window,
+		the first at the top (see :meth:`_bar_geometry`); a fourth bar starts a new column to the left"""
 		from pyvista.plotting.scalar_bars import MAX_N_COLOR_BARS
-		if bar_args['title'] not in self._bar_slots:
-			self._bar_slots[bar_args['title']] = next(i for i in range(len(self._bar_slots) + 1)
-													   if i not in self._bar_slots.values())
-		slot = self._bar_slots[bar_args['title']]
-		if slot >= MAX_N_COLOR_BARS:
-			raise RuntimeError("There is room for {} colour bars, name fewer variables or labels".format(
-				MAX_N_COLOR_BARS))
-		column, row = divmod(slot, len(_BAR_ROWS))
+		title = bar_args['title']
+		if title not in self._bar_slots:
+			slot = next(i for i in range(len(self._bar_slots) + 1) if i not in self._bar_slots.values())
+			if slot >= MAX_N_COLOR_BARS:
+				raise RuntimeError("There is room for {} colour bars, name fewer variables or labels".format(
+					MAX_N_COLOR_BARS))
+			self._bar_slots[title] = slot
+			self._arrange_bars()
 		return {'color': _BACKGROUNDS[self._background][1], 'title_font_size': 14, 'label_font_size': 12,
-				**bar_args, 'vertical': True, 'width': 0.08, 'height': _BAR_HEIGHT,
-				'position_x': 0.88 - column * 0.12, 'position_y': _BAR_ROWS[row]}
+				**bar_args, 'vertical': True, 'width': 0.08, **self._bar_geometry(title)}
+
+	def _bar_geometry(self, title):
+		"""Where the colour bar of ``title`` goes: the bars of a column of the right side share its height,
+		so that two bars fill the right side between them (one on the top half, one on the bottom half)
+		and three have a third each. A single bar has a little over half of it"""
+		slot = self._bar_slots[title]
+		column = slot // _BARS_PER_COLUMN
+		mates = sorted({s for s in self._bar_slots.values() if s // _BARS_PER_COLUMN == column})
+		room = min(0.94 / len(mates), 0.61)               # the height of the place of a bar, with its title
+		height = room - 0.06
+		return {'height': height, 'position_x': 0.88 - column * 0.12,
+				'position_y': 0.97 - mates.index(slot) * room - 0.06 - height}
+
+	def _arrange_bars(self):
+		"""Give the bars that are already drawn the place that :meth:`_bar_geometry` has for them now, after
+		a bar was added or left"""
+		for layer in self._layers:
+			args = layer.kwargs.get('scalar_bar_args')
+			if args is not None and args['title'] in self._bar_slots:
+				args.update(self._bar_geometry(args['title']))
+		for title in list(self.plotter.scalar_bars.keys()):
+			if title in self._bar_slots:
+				place = self._bar_geometry(title)
+				bar = self.plotter.scalar_bars[title]
+				bar.SetPosition(place['position_x'], place['position_y'])
+				bar.SetHeight(place['height'])
 
 	def _keep_clim(self, layer):
 		"""Put the colour limits of a layer back on its colour bar. A bar that is reused is widened
@@ -617,7 +663,7 @@ class Viewer:
 		tubes = mesh.extract_cells(np.flatnonzero(np.isin(segment, np.flatnonzero(crossing))))
 		if tubes.n_cells:
 			tubes = _Source(tubes, layer.source.var, layer.source.griddef).cut(
-				layer.threshold, layer.section, None, layer.shown_categories)
+				layer.threshold, layer.section, None, layer.shown_categories, var=layer.threshold_var)
 		if tubes.n_cells:
 			half = slicer['tolerance'] / 2
 			tubes = tubes.clip(normal=normal, origin=origin + half * normal, invert=True)
@@ -1259,9 +1305,8 @@ def _corners(extents):
 	return bounds[:, :, 0].min(axis=0), bounds[:, :, 1].max(axis=0)
 
 
-# Where the colour bars stack at the right of the window: the position_y of each row, which all have the same height
-_BAR_ROWS = (0.68, 0.36, 0.04)
-_BAR_HEIGHT = 0.27
+# How many colour bars stand above each other at the right of the window before a new column starts
+_BARS_PER_COLUMN = 3
 
 
 # The camera of each view of :meth:`Viewer.set_camera_view`: the direction pyvista looks along, whether

@@ -1176,31 +1176,45 @@ def test_slicer_moves_keep_the_holes_on_the_slice_in_place(two_holes):
     assert len(viewer.plotter.renderer.actors) == n_actors - 1
 
 
-def test_colour_bars_of_different_titles_have_their_own_places(grid3d):
-    """Each colour bar gets its own place, stacked at the right with the first at the top, so bars of several layers do not overlap."""
+def bar_boxes(viewer, titles):
+    """(x, bottom, top) of the colour bars of `titles`, as fractions of the window."""
+    boxes = []
+    for title in titles:
+        bar = viewer.plotter.scalar_bars[title]
+        x, y = bar.GetPosition()
+        boxes.append((x, y, y + bar.GetPosition2()[1]))
+    return boxes
+
+
+def test_two_colour_bars_share_the_right_side_between_them(grid3d):
+    """The first bar fills the top half of the right side and the second the bottom half, the same
+    size, so that each is long enough to read; a second layer with the same title adds no bar."""
     data, griddef = grid3d
     viewer = gs.view3d(data, 'value', griddef=griddef, viewer=gs.Viewer(off_screen=True))
     gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer)
     gs.view3d(data, 'value', griddef=griddef, viewer=viewer)          # a second layer with the same title
-    bars = [viewer.plotter.scalar_bars[t] for t in ('value', 'Estimate')]
-    (x1, y1), (x2, y2) = (bar.GetPosition() for bar in bars)
-    h1, h2 = (bar.GetPosition2()[1] for bar in bars)
-    assert h1 == h2                                              # the bars are the same size
     assert list(viewer.plotter.scalar_bars.keys()) == ['value', 'Estimate']
-    # One column at the right, the first bar on top and the second below it, not touching
-    assert x1 == x2 == pytest.approx(0.88) and y1 > y2 + h2 and y1 + h1 <= 1
+    (x1, bottom1, top1), (x2, bottom2, top2) = bar_boxes(viewer, ['value', 'Estimate'])
+    assert x1 == x2 == pytest.approx(0.88)
+    assert top1 - bottom1 == pytest.approx(top2 - bottom2) and top1 - bottom1 > 0.4
+    assert top1 > 0.9 and bottom2 < 0.05                               # from the top to the bottom of the window
+    assert bottom1 > top2 and bottom1 - top2 < 0.1                      # one below the other, with room for the title
 
 
 def test_colour_bars_stack_in_three_rows_and_then_start_a_new_column():
-    """The fourth colour bar is at the top of a column to the left of the first three."""
+    """Three bars have a third of the right side each, and the fourth is alone in a column to the left,
+    where it is as long as a single bar."""
     viewer = gs.Viewer(off_screen=True)
     for i in range(4):
         mesh = pv.Sphere(center=(i * 3, 0, 0), radius=1)
         mesh.cell_data['v{}'.format(i)] = np.arange(mesh.n_cells, dtype=float)
         gs.view3d(mesh, 'v{}'.format(i), viewer=viewer)
-    places = [viewer.plotter.scalar_bars['v{}'.format(i)].GetPosition() for i in range(4)]
-    assert [round(x, 2) for x, _ in places] == [0.88, 0.88, 0.88, 0.76]
-    assert places[0][1] > places[1][1] > places[2][1] and places[3][1] == places[0][1]
+    boxes = bar_boxes(viewer, ['v{}'.format(i) for i in range(4)])
+    assert [round(x, 2) for x, _, _ in boxes] == [0.88, 0.88, 0.88, 0.76]
+    assert boxes[0][1] > boxes[1][1] > boxes[2][1]
+    sizes = [top - bottom for _, bottom, top in boxes[:3]]
+    assert sizes == pytest.approx([sizes[0]] * 3) and sizes[0] == pytest.approx(0.2533, abs=0.01)
+    assert boxes[3][2] == pytest.approx(boxes[0][2]) and boxes[3][2] - boxes[3][1] > 0.5
 
 
 def test_colour_bars_stop_at_the_room_there_is():
@@ -1642,7 +1656,7 @@ def coloured_holes(two_holes):
 
 def test_set_layer_color_by(coloured_holes):
     """The layer is coloured by the other variable, with its own colour limits, colour bar and
-    categories, and goes back to its first one; the threshold keeps using the first variable."""
+    categories, and goes back to its first one; a threshold is taken off when the variable it cuts changes."""
     viewer = coloured_holes
     layer = viewer._layers[0]
     assert layer.color_var == 'Au' and list(layer.source.colourings) == ['Au', 'Cu', 'code']
@@ -1651,8 +1665,8 @@ def test_set_layer_color_by(coloured_holes):
     assert layer.color_var == 'Cu' and layer.kwargs['scalars'] == 'Cu' and layer.clim == (10.0, 70.0)
     assert layer.data_range == (10.0, 70.0) and 'Cu' in viewer.plotter.scalar_bars.keys()
     assert 'Au' not in viewer.plotter.scalar_bars.keys()
-    assert layer.threshold == (2, 8) and not layer.actor.visibility
-    assert layer.mesh.n_cells == layer.source.cut((2, 8), None).n_cells
+    assert layer.threshold is None and not layer.actor.visibility
+    assert layer.mesh.n_cells == layer.source.mesh.n_cells
     viewer.set_layer('Au', color_by='code', threshold=False)
     assert layer.kwargs['scalars'] == 'category index' and layer.kwargs['annotations'] == {0: 'a', 1: 'b'}
     assert layer.clim is None and layer.categorical and 'code' in viewer.plotter.scalar_bars.keys()
@@ -1660,6 +1674,39 @@ def test_set_layer_color_by(coloured_holes):
     viewer.set_layer('Au', color_by='Au')
     assert layer.kwargs['scalars'] == 'Au' and layer.clim == (1.0, 7.0) and 'Au' in viewer.plotter.scalar_bars.keys()
     assert 'code' not in viewer.plotter.scalar_bars.keys()
+
+
+def test_threshold_cuts_the_variable_the_layer_is_coloured_by(coloured_holes):
+    """A threshold on a layer coloured by Cu is in Cu (the values of its colour bar), not in Au, and
+    it is taken off when the colour changes to another variable; a variable with categories leaves the
+    threshold on the variable the layer was made with."""
+    viewer = coloured_holes
+    layer = viewer._layers[0]
+    viewer.set_layer('Au', threshold=(2, 8))
+    assert layer.threshold_var == 'Au' and layer.mesh.n_cells < layer.source.mesh.n_cells
+    viewer.set_layer('Au', color_by='Cu')
+    assert layer.threshold is None and layer.threshold_var == 'Cu'
+    viewer.set_layer('Au', threshold=(45, 80))
+    cu = layer.mesh.cell_data['Cu']
+    assert layer.mesh.n_cells == (layer.source.mesh.cell_data['Cu'] >= 45).sum() and cu.min() >= 45
+    # With Au as the cut variable, (45, 80) would leave nothing: Au only goes up to 8
+    # A threshold given with the new colour is kept; one made for the same variable is kept too
+    viewer.set_layer('Au', opacity=0.5)
+    assert layer.threshold == (45, 80)
+    viewer.set_layer('Au', color_by='code')                  # categories: the threshold goes back to Au
+    assert layer.threshold_var == 'Au' and layer.threshold is None
+    viewer.set_layer('Au', color_by='Cu', threshold=(45, 80))
+    assert layer.threshold == (45, 80) and layer.mesh.cell_data['Cu'].min() >= 45
+
+
+def test_holes_on_the_slice_follow_the_threshold_of_the_colour_variable(coloured_holes):
+    """The drill holes that cross the slicer's plane are cut by the same variable as the layer."""
+    viewer = coloured_holes
+    layer = viewer._layers[0]
+    viewer.set_layer('Au', color_by='Cu', threshold=(45, 80))
+    viewer.set_slicer(enabled=True, origin=(25, 0, 15), normal=(0, 0, 1), tolerance=40, show_holes=True)
+    assert layer.crossing is not None and layer.crossing.n_cells > 0
+    assert layer.crossing.cell_data['Cu'].min() >= 45
 
 
 def test_colour_bar_keeps_its_place_when_the_layer_is_coloured_by_another_variable(coloured_holes):
@@ -1679,14 +1726,19 @@ def test_colour_bar_keeps_its_place_when_the_layer_is_coloured_by_another_variab
 
 
 def test_a_bar_shared_by_two_layers_stays_when_one_is_coloured_by_another_variable(coloured_holes):
-    """Colouring one of two layers that share a bar title leaves the bar where it is, and the
-    layer's new bar gets the next place."""
+    """Colouring one of two layers that share a bar title leaves that bar, and the layer's new bar
+    is added below it; the two share the right side."""
     viewer = coloured_holes
     gs.view3d(gs.ExampleData('3d_estimate'), 'Estimate', viewer=viewer, label='Au')
-    bars = viewer.plotter.scalar_bars
-    before = bars['Au'].GetPosition()
+    assert list(viewer.plotter.scalar_bars.keys()) == ['Au']
     viewer.set_layer('Au', color_by='Cu')
-    assert bars['Au'].GetPosition() == before and bars['Cu'].GetPosition()[1] < before[1]
+    (_, bottom1, top1), (_, bottom2, top2) = bar_boxes(viewer, ['Au', 'Cu'])
+    assert top1 > 0.9 and bottom2 < 0.05 and bottom1 > top2 and top1 - bottom1 == pytest.approx(top2 - bottom2)
+    # Back to the shared bar: the bar of 'Cu' goes, and 'Au' has the right side again
+    viewer.set_layer('Au', color_by='Au')
+    assert list(viewer.plotter.scalar_bars.keys()) == ['Au']
+    (_, bottom, top), = bar_boxes(viewer, ['Au'])
+    assert top > 0.9 and top - bottom > 0.5
 
 
 def test_set_layer_color_by_refuses_other_names(coloured_holes):

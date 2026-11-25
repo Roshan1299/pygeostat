@@ -524,6 +524,29 @@ def test_panel_tube_radius(viewer):
     asyncio.run(scenario())
 
 
+def test_panel_threshold_follows_the_colour_variable():
+    """The threshold box is for the variable of the colour bar: its label and data range change with
+    Colour by, a minimum typed before is dropped, and the cut is made on that variable."""
+    import pandas as pd
+    two_holes = pd.DataFrame({'x': [0.0] * 4 + [50.0] * 4, 'y': 0.0, 'z': [30.0, 20.0, 10.0, 0.0] * 2,
+                              'hole': ['a'] * 4 + ['b'] * 4, 'Au': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+                              'Cu': [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]})
+    viewer = gs.view3d(two_holes, 'Au', x='x', y='y', z='z', dh='hole', trace=True, radius=3,
+                       other_vars={'Cu': None}, viewer=gs.Viewer(off_screen=True))
+    panel = viewer.panel()
+    layer = viewer._layers[0]
+    assert panel.state.layers[0]['variable'] == 'Au' and panel.state.layers[0]['threshold_range'] == [1.0, 7.0]
+    triggered(panel, panel.set_threshold_min)('Au', '3')
+    triggered(panel, panel.set_color_by)('Au', 'Cu')
+    row = panel.state.layers[0]
+    assert row['variable'] == 'Cu' and row['threshold_range'] == [10.0, 70.0] and row['threshold_on'] is False
+    triggered(panel, panel.set_threshold_on)('Au', True)
+    assert layer.threshold == (10.0, 70.0)                              # not the 3 typed for Au
+    triggered(panel, panel.set_threshold_min)('Au', '45')
+    assert layer.mesh.cell_data['Cu'].min() >= 45
+    assert layer.mesh.n_cells == (layer.source.mesh.cell_data['Cu'] >= 45).sum() < layer.source.mesh.n_cells
+
+
 def test_panel_colour_by_and_palette():
     """A layer with other variables has a Colour by list; a layer coloured by categories has a palette
     list with only the palettes that have enough colours; both call the viewer."""

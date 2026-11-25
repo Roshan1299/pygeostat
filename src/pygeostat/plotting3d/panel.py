@@ -554,8 +554,13 @@ class Panel:
 		self._try(name, lambda: {'categories': []})
 
 	def set_color_by(self, name, variable):
-		"""Colour a layer by another variable, like ``Viewer.set_layer(name, color_by=...)``"""
+		"""Colour a layer by another variable, like ``Viewer.set_layer(name, color_by=...)``. The minimum typed
+		for the threshold was of the variable it cut before"""
+		layer = self._layer(name)
+		before = layer.threshold_var
 		self._try(name, lambda: {'color_by': variable})
+		if layer.threshold_var != before:
+			self._typed_min.pop(name, None)
 
 	def set_cmap(self, name, cmap):
 		"""Set the colormap of a layer, like ``Viewer.set_layer(name, cmap=...)"""
@@ -579,7 +584,7 @@ class Panel:
 		the layer already has (from a script), else the highest value of the data. The minimum is
 		the lowest of the data until one is typed"""
 		layer = self._layer(name)
-		low, high = layer.source.mesh.get_data_range(layer.source.var)
+		low, high = layer.source.mesh.get_data_range(layer.threshold_var)
 		if layer.threshold is not None:
 			high = layer.threshold[1]
 		return (self._typed_min.get(name, low), high)
@@ -789,10 +794,10 @@ def _row(layer):
 	source = layer.source
 	threshold_range = None
 	if source is not None and source.var is not None:
-		threshold_range = _floats(source.mesh.get_data_range(source.var))
+		threshold_range = _floats(source.mesh.get_data_range(layer.threshold_var))
 	return {'name': layer.name, 'visible': layer.visible, 'opacity': layer.kwargs.get('opacity', 1.0),
 			'cmap': layer.cmap, 'edges': bool(layer.kwargs.get('show_edges', False)) if layer.kind == 'blocks' else None,
 			'clim': _floats(layer.clim), 'data_range': _floats(layer.clim and layer.data_range),
-			'variable': source and source.var, 'threshold_range': threshold_range,
+			'variable': source and layer.threshold_var, 'threshold_range': threshold_range,
 			'threshold_on': layer.threshold is not None,
 			'threshold_min': None if layer.threshold is None else float(layer.threshold[0])}
