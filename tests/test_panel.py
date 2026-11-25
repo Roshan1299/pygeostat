@@ -341,6 +341,23 @@ def test_panel_vertical_exaggeration_follows_the_slider(viewer):
     asyncio.run(scenario())
 
 
+def test_panel_vertical_exaggeration_slider_keeps_the_view(viewer):
+    """Moving the slider stretches the scene without moving the camera: same direction and distance."""
+    import asyncio
+    panel = viewer.panel()
+
+    async def scenario():
+        await panel.layout.ready
+        camera = viewer.plotter.camera
+        viewer.plotter.camera_position = [(300, -200, 150), (50, 50, 10), (0, 0, 1)]
+        before = np.array(camera.position) - np.array(camera.focal_point)
+        await drag(panel, vertical_exaggeration=4.0)
+        np.testing.assert_allclose(np.array(camera.position) - np.array(camera.focal_point), before)
+        np.testing.assert_allclose(camera.focal_point, (50, 50, 40))
+        await panel.server.stop()
+    asyncio.run(scenario())
+
+
 def test_panel_background(viewer):
     """Choosing the background changes the scene's background and the text colour of the ruler and
     the colour bars, and the page follows a script."""

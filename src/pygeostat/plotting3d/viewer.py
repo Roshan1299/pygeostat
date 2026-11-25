@@ -677,6 +677,9 @@ class Viewer:
 		self._tick_note = _draw_ruler(plotter, self._extents, self._ruler, self._vertical_exaggeration,
 									  self._origin_values(), _BACKGROUNDS[self._background][1],
 									  self._tick_spacing, self._hidden_axis)
+		# A ruler made after the scene was drawn does not show until the scene is drawn again (checked with
+		# PyVista 0.49), and the panel only draws when something changes
+		plotter.render()
 
 	def _draw_extras(self, plotter):
 		"""Draw everything around the layers again: the ruler, the box and the arrows. They are
@@ -718,18 +721,32 @@ class Viewer:
 		if self._panel is not None:
 			self._panel.refresh()
 
-	def set_vertical_exaggeration(self, factor):
+	def set_vertical_exaggeration(self, factor, keep_view=False):
 		"""
 		Stretch the scene vertically, e.g. to see a thin deposit spread over a large area. The
 		ruler keeps showing the real elevations.
 
 		Parameters:
 			factor (float): vertical exaggeration, 1 for none
+			keep_view (bool): keep the camera where it is, with the point in the middle of the view
+				staying there and the scene stretched around it, as the panel's slider does. If
+				False, the whole stretched scene is framed (:meth:`fit_view`)
 		"""
+		previous = self._vertical_exaggeration
 		self._vertical_exaggeration = factor
-		self.plotter.set_scale(zscale=factor)
+		self.plotter.set_scale(zscale=factor, reset_camera=False)
 		# set_scale also stretches the ruler, so it is drawn again
 		self._draw_extras(self.plotter)
+		if keep_view:
+			import numpy as np
+			camera = self.plotter.camera
+			focal = np.array(camera.focal_point)
+			stretched = focal * [1, 1, factor / previous]
+			camera.position = tuple(np.array(camera.position) + stretched - focal)
+			camera.focal_point = tuple(stretched)
+			self.plotter.renderer.ResetCameraClippingRange()
+		else:
+			self.fit_view()
 		self._refresh_panel()
 
 	def set_background(self, background):

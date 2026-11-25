@@ -623,7 +623,7 @@ class Panel:
 		"""The slider moved: stretch the scene with its value, as the slider is dragged"""
 		factor = float(vertical_exaggeration)
 		if factor != self.viewer._vertical_exaggeration:
-			self._guard(lambda: self.viewer.set_vertical_exaggeration(factor))
+			self._guard(lambda: self.viewer.set_vertical_exaggeration(factor, keep_view=True))
 
 	def _on_background(self, background, **changed):
 		"""The background was chosen: change it, like ``Viewer.set_background``"""

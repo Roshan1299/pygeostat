@@ -408,6 +408,44 @@ def test_vertical_exaggeration():
     assert ruler_labels(viewer, 2) == ['0', '5', '10', '15', '20']
 
 
+def ruler_pixels(viewer):
+    """How many pixels of the scene as drawn now are the grey of the ruler's lines and text."""
+    image = viewer.plotter.screenshot(return_img=True).astype(int)
+    grey = (np.abs(image[:, :, 0] - image[:, :, 1]) < 8) & (np.abs(image[:, :, 1] - image[:, :, 2]) < 8)
+    return int((grey & (image[:, :, 0] < 140)).sum())
+
+
+def test_vertical_exaggeration_of_a_scene_that_was_drawn_shows_the_ruler():
+    """Changing the exaggeration after the scene was drawn (as the panel's slider does) leaves the ruler's
+    lines and grid in the picture. The ruler that was made again did not show until the scene was drawn
+    again."""
+    def picture(draw_first):
+        viewer = gs.view3d(pv.Box((0, 100, 0, 100, 0, 10)), color='tan', viewer=gs.Viewer(off_screen=True))
+        viewer.add_ruler()
+        if draw_first:
+            viewer.plotter.screenshot(return_img=True)
+        viewer.set_vertical_exaggeration(3)
+        return viewer
+    assert ruler_pixels(picture(True)) > 200
+
+
+def test_vertical_exaggeration_keep_view_stretches_the_scene_around_the_middle_of_the_view():
+    """With keep_view the camera keeps its direction and distance and the point in the middle of the view
+    stays there; without it the whole stretched scene is framed again."""
+    viewer = gs.view3d(pv.Box((0, 100, 0, 100, 0, 10)), color='tan', viewer=gs.Viewer(off_screen=True))
+    viewer.add_ruler()
+    viewer.set_vertical_exaggeration(2)
+    camera = viewer.plotter.camera
+    viewer.plotter.camera_position = [(300, -200, 150), (50, 50, 10), (0, 0, 1)]
+    viewer.plotter.screenshot(return_img=True)
+    viewer.set_vertical_exaggeration(4, keep_view=True)
+    np.testing.assert_allclose(camera.focal_point, (50, 50, 20))   # 10 * 4 / 2
+    np.testing.assert_allclose(camera.position, (300, -200, 160))  # moved with it, so the direction is the same
+    assert ruler_pixels(viewer) > 200
+    viewer.set_vertical_exaggeration(4)
+    assert not np.allclose(camera.position, (300, -200, 160))      # fitted again
+
+
 def test_show_static_vertical_exaggeration(subblocks):
     """show_static draws the stretched scene and ruler exactly as the live view."""
     from matplotlib import pyplot as plt
