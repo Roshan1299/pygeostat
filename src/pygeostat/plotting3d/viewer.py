@@ -505,10 +505,9 @@ class Viewer:
 			raise RuntimeError("There is room for {} colour bars, name fewer variables or labels".format(
 				MAX_N_COLOR_BARS))
 		column, row = divmod(slot, len(_BAR_ROWS))
-		position_y, height, n_labels = _BAR_ROWS[row]
-		return {'color': _BACKGROUNDS[self._background][1], 'n_labels': n_labels, 'title_font_size': 14,
-				'label_font_size': 12, **bar_args, 'vertical': True, 'width': 0.08, 'height': height,
-				'position_x': 0.88 - column * 0.12, 'position_y': position_y}
+		return {'color': _BACKGROUNDS[self._background][1], 'title_font_size': 14, 'label_font_size': 12,
+				**bar_args, 'vertical': True, 'width': 0.08, 'height': _BAR_HEIGHT,
+				'position_x': 0.88 - column * 0.12, 'position_y': _BAR_ROWS[row]}
 
 	def _keep_clim(self, layer):
 		"""Put the colour limits of a layer back on its colour bar. A bar that is reused is widened
@@ -1260,8 +1259,9 @@ def _corners(extents):
 	return bounds[:, :, 0].min(axis=0), bounds[:, :, 1].max(axis=0)
 
 
-# Where the colour bars stack at the right of the window: (position_y, height, number of labels) of each row
-_BAR_ROWS = ((0.52, 0.43, 5), (0.29, 0.18, 3), (0.06, 0.16, 3))
+# Where the colour bars stack at the right of the window: the position_y of each row, which all have the same height
+_BAR_ROWS = (0.68, 0.36, 0.04)
+_BAR_HEIGHT = 0.27
 
 
 # The camera of each view of :meth:`Viewer.set_camera_view`: the direction pyvista looks along, whether

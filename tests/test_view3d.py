@@ -1185,6 +1185,7 @@ def test_colour_bars_of_different_titles_have_their_own_places(grid3d):
     bars = [viewer.plotter.scalar_bars[t] for t in ('value', 'Estimate')]
     (x1, y1), (x2, y2) = (bar.GetPosition() for bar in bars)
     h1, h2 = (bar.GetPosition2()[1] for bar in bars)
+    assert h1 == h2                                              # the bars are the same size
     assert list(viewer.plotter.scalar_bars.keys()) == ['value', 'Estimate']
     # One column at the right, the first bar on top and the second below it, not touching
     assert x1 == x2 == pytest.approx(0.88) and y1 > y2 + h2 and y1 + h1 <= 1
